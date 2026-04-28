@@ -30,7 +30,20 @@ async function main() {
     process.exit(1);
   }
 
-  const heartbeatTimer = startHeartbeatLoop(session.session_id);
+  let shuttingDown = false;
+  let heartbeatTimer: NodeJS.Timeout | undefined;
+  const shutdown = (reason: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    console.error(`[keyq-tempo-mcp] shutting down: ${reason}`);
+    const timeout = new Promise((res) => setTimeout(res, 3000));
+    Promise.race([terminateSession(session.session_id), timeout]).finally(() => process.exit(0));
+  };
+
+  heartbeatTimer = startHeartbeatLoop(session.session_id, 60_000, () => {
+    shutdown('session terminated by user');
+  });
 
   const server = new McpServer({ name: 'keyq-tempo', version: '0.1.0' });
 
@@ -155,12 +168,17 @@ async function main() {
   await server.connect(transport);
   console.error(`[keyq-tempo-mcp] Connected (session ${session.short_code} / id ${session.session_id})`);
 
-  const shutdown = () => {
-    clearInterval(heartbeatTimer);
-    terminateSession(session.session_id).finally(() => process.exit(0));
-  };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGHUP', () => shutdown('SIGHUP'));
+
+  // Claude Code closes its stdio pipes to the MCP child when /exit'ing,
+  // which doesn't always send a signal. Detect that and shut down so the
+  // session gets terminated promptly instead of lingering as a ghost
+  // heartbeating forever.
+  process.stdin.on('end', () => shutdown('stdin end'));
+  process.stdin.on('close', () => shutdown('stdin close'));
+  process.stdout.on('error', () => shutdown('stdout error'));
 }
 
 main().catch((err) => {
