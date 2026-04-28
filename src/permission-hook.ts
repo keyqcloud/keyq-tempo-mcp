@@ -113,7 +113,15 @@ async function main() {
     if (!create.ok) {
       emitDecision('deny', `keyq-tempo-permission-hook: prompt create failed (${create.status})`);
     }
-    const data = await create.json() as { id: number };
+    const data = await create.json() as { id?: number; auto_allowed?: boolean };
+    // Fast-path: the user previously chose "Allow always (this session)"
+    // for this tool, so the API short-circuited without creating a prompt.
+    if (data.auto_allowed) {
+      emitDecision('allow', `Auto-approved via Tempo session policy (${input.tool_name})`);
+    }
+    if (typeof data.id !== 'number') {
+      emitDecision('deny', 'keyq-tempo-permission-hook: malformed create response');
+    }
     promptId = data.id;
   } catch (e) {
     emitDecision('deny', `keyq-tempo-permission-hook: network error creating prompt: ${e instanceof Error ? e.message : 'unknown'}`);
