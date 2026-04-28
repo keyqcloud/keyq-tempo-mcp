@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/permission-hook.ts'],
+  entry: ['src/index.ts', 'src/permission-hook.ts', 'src/message-hook.ts'],
   format: ['esm'],
   target: 'node20',
   splitting: false,

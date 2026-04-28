@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "bin": {
     "keyq-tempo-mcp": "dist/index.js",
-    "keyq-tempo-permission-hook": "dist/permission-hook.js"
+    "keyq-tempo-permission-hook": "dist/permission-hook.js",
+    "keyq-tempo-message-hook": "dist/message-hook.js"
   },
   "files": ["dist", "README.md"],
   "scripts": {
