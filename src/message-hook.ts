@@ -147,17 +147,14 @@ async function main() {
     if (r.ok) {
       const data = await r.json() as { content: string | null };
       if (data.content && data.content.trim()) {
-        // Output the Stop hook block decision and exit 0 so Claude Code
-        // continues with this content. Output formats are dual-printed for
-        // legacy + modern hook conventions.
+        // Stop hook continuation: returning decision:"block" + reason tells
+        // Claude Code NOT to stop and to treat reason as the next prompt.
+        // Note: hookSpecificOutput is only valid for PreToolUse /
+        // UserPromptSubmit / PostToolUse / PostToolBatch, NOT Stop — so we
+        // do not include it here.
         const out = {
           decision: 'block',
           reason: `(via Tempo) ${data.content}`,
-          continue: true,
-          hookSpecificOutput: {
-            hookEventName: 'Stop',
-            additionalContext: data.content,
-          },
         };
         process.stdout.write(JSON.stringify(out));
         process.exit(0);
