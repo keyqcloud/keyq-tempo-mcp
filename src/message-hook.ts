@@ -125,13 +125,45 @@ async function main() {
 
   if (!sessionId) process.exit(0);
 
+  // 1) Mirror the assistant turn to Tempo (best-effort).
   try {
     await fetch(`${apiUrl}/mcp/sessions/${sessionId}/messages`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ role: 'assistant', content: text }),
     });
-  } catch { /* swallow — best effort mirror */ }
+  } catch { /* swallow */ }
+
+  // 2) Consume any pending inbox messages for this session. If there are
+  //    queued user prompts (sent from Tempo web while we were mid-turn),
+  //    deliver them now by returning decision:"block" so Claude continues
+  //    with that content as the next prompt.
+  try {
+    const r = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/consume`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    });
+    if (r.ok) {
+      const data = await r.json() as { content: string | null };
+      if (data.content && data.content.trim()) {
+        // Output the Stop hook block decision and exit 0 so Claude Code
+        // continues with this content. Output formats are dual-printed for
+        // legacy + modern hook conventions.
+        const out = {
+          decision: 'block',
+          reason: `(via Tempo) ${data.content}`,
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: 'Stop',
+            additionalContext: data.content,
+          },
+        };
+        process.stdout.write(JSON.stringify(out));
+        process.exit(0);
+      }
+    }
+  } catch { /* swallow */ }
 
   process.exit(0);
 }
