@@ -8,17 +8,22 @@ interface QuestionResult {
   response: string | null;
 }
 
-async function createAndAwait(sessionId: number, type: 'ask' | 'approve' | 'notify', question: string): Promise<QuestionResult | { id: number }> {
-  const created = await api.post<{ id: number }>('/mcp/questions', {
+async function createQuestion(sessionId: number, type: 'ask' | 'approve' | 'notify', question: string): Promise<number> {
+  const r = await api.post<{ id: number }>('/mcp/questions', {
     session_id: sessionId,
     type,
     question,
   });
-  if (type === 'notify') return { id: created.id };
+  return r.id;
+}
 
+async function pollForResponse(questionId: number): Promise<QuestionResult> {
   const start = Date.now();
   while (Date.now() - start < MAX_TOTAL_WAIT_MS) {
-    const r = await api.get<QuestionResult>(`/mcp/questions/${created.id}?wait=${POLL_WAIT_SECS}`, { timeoutMs: (POLL_WAIT_SECS + 5) * 1000 });
+    const r = await api.get<QuestionResult>(
+      `/mcp/questions/${questionId}?wait=${POLL_WAIT_SECS}`,
+      { timeoutMs: (POLL_WAIT_SECS + 5) * 1000 },
+    );
     if (r.status !== 'pending') return r;
   }
   return { status: 'pending', response: null };
@@ -26,8 +31,8 @@ async function createAndAwait(sessionId: number, type: 'ask' | 'approve' | 'noti
 
 export async function handleAsk(sessionId: number, params: { question: string; context?: string }): Promise<string> {
   const fullQuestion = params.context ? `${params.question}\n\n--- Context ---\n${params.context}` : params.question;
-  const r = await createAndAwait(sessionId, 'ask', fullQuestion);
-  if ('id' in r) return 'Notification sent.';
+  const id = await createQuestion(sessionId, 'ask', fullQuestion);
+  const r = await pollForResponse(id);
   if (r.status === 'answered') return r.response ?? '';
   if (r.status === 'canceled') return '[user canceled the question]';
   if (r.status === 'expired') return '[question expired without a response]';
@@ -36,8 +41,8 @@ export async function handleAsk(sessionId: number, params: { question: string; c
 
 export async function handleApprove(sessionId: number, params: { question: string; context?: string }): Promise<string> {
   const fullQuestion = params.context ? `${params.question}\n\n--- Context ---\n${params.context}` : params.question;
-  const r = await createAndAwait(sessionId, 'approve', fullQuestion);
-  if ('id' in r) return 'Notification sent.';
+  const id = await createQuestion(sessionId, 'approve', fullQuestion);
+  const r = await pollForResponse(id);
   if (r.status === 'answered') return r.response ?? '';
   if (r.status === 'canceled') return '[user canceled the approval]';
   if (r.status === 'expired') return '[approval expired without a response]';
@@ -45,6 +50,6 @@ export async function handleApprove(sessionId: number, params: { question: strin
 }
 
 export async function handleNotify(sessionId: number, params: { message: string }): Promise<string> {
-  await createAndAwait(sessionId, 'notify', params.message);
+  await createQuestion(sessionId, 'notify', params.message);
   return 'Sent.';
 }
