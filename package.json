@@ -1,0 +1,29 @@
+{
+  "name": "keyq-tempo-mcp",
+  "version": "0.1.0",
+  "description": "MCP server bridging Claude Code sessions to KeyQ Tempo (async approvals + Tempo data access)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "keyq-tempo-mcp": "dist/index.js"
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "prepare": "tsup"
+  },
+  "keywords": ["mcp", "claude-code", "keyq", "tempo"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.7.3"
+  }
+}
