@@ -135,6 +135,10 @@ async function main() {
 
   if (!sessionId) process.exit(0);
 
+  // Short-running calls (mirror + consume) get a 15s timeout; the long
+  // wait endpoint gets its own larger timeout in the listen loop below.
+  const SHORT_FETCH_TIMEOUT_MS = 15_000;
+
   // 1) Mirror the latest assistant turn to Tempo. Runs on EVERY Stop
   //    event, including continuations where stop_hook_active=true. Each
   //    such Stop corresponds to a distinct new assistant turn (Claude's
@@ -145,7 +149,9 @@ async function main() {
   if (text) {
     try {
       await fetch(`${apiUrl}/mcp/sessions/${sessionId}/messages`, {
-        method: 'POST', headers, body: JSON.stringify({ role: 'assistant', content: text }),
+        method: 'POST', headers,
+        body: JSON.stringify({ role: 'assistant', content: text }),
+        signal: AbortSignal.timeout(SHORT_FETCH_TIMEOUT_MS),
       });
     } catch { /* swallow */ }
   }
@@ -158,6 +164,7 @@ async function main() {
   try {
     const r = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/consume`, {
       method: 'POST', headers, body: JSON.stringify({}),
+      signal: AbortSignal.timeout(SHORT_FETCH_TIMEOUT_MS),
     });
     if (r.ok) {
       const data = await r.json() as { content: string | null };
@@ -171,13 +178,26 @@ async function main() {
   //    new inbox entries; we reconnect after each timeout for an unbounded
   //    effective wait. Network errors back off and retry — the user's
   //    workstation may have flaky connectivity but we want to keep listening.
+  //
+  //    Defensive: every fetch has an AbortSignal timeout so a half-open TCP
+  //    connection (sleeping laptop, dropped CF edge) can't hang indefinitely.
+  //    JSON parse is wrapped in try/catch so a malformed response doesn't
+  //    crash the hook — without this, an exception here would propagate
+  //    out of main() and the outer .catch(() => exit(0)) would silently end
+  //    the listening session.
   let backoff = 5_000;
   const MAX_BACKOFF = 60_000;
+  // Wait endpoint blocks ~25s server-side; 35s aborts give ~10s headroom.
+  const FETCH_TIMEOUT_MS = 35_000;
   for (;;) {
     let resp: Response;
     try {
-      resp = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/wait`, { headers });
+      resp = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/wait`, {
+        headers,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
     } catch {
+      // Network error or timeout — backoff and retry.
       await sleep(backoff);
       backoff = Math.min(backoff * 2, MAX_BACKOFF);
       continue;
@@ -196,10 +216,16 @@ async function main() {
     }
     backoff = 5_000; // reset on any successful response
 
-    const data = await resp.json() as {
-      content: string | null;
-      listening_canceled?: boolean;
-    };
+    let data: { content: string | null; listening_canceled?: boolean };
+    try {
+      data = await resp.json() as typeof data;
+    } catch {
+      // Malformed/truncated response. Treat as transient and retry —
+      // do NOT let the exception kill the hook.
+      await sleep(backoff);
+      backoff = Math.min(backoff * 2, MAX_BACKOFF);
+      continue;
+    }
 
     if (data.content && data.content.trim()) deliverBlock(data.content);
 
