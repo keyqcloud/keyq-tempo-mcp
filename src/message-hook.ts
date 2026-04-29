@@ -1,8 +1,10 @@
-// Claude Code Stop hook that mirrors each assistant turn to KeyQ Tempo.
-// Reads the hook input JSON from stdin, locates the latest assistant turn
-// in the transcript, extracts text blocks, POSTs to Tempo. Exits 0 with no
-// output so Claude stops normally — this is a passive observer, never a
-// blocker.
+// Claude Code Stop hook that mirrors each assistant turn to KeyQ Tempo and
+// implements the bridge's "Listening" mode (Phase 3d). Reads the hook input
+// JSON from stdin, locates the latest assistant turn in the transcript,
+// mirrors it, drains any pending inbox messages, then — if the session has
+// listening_mode=1 — long-polls the wait endpoint indefinitely until either
+// a new prompt arrives (returned as decision:"block") or the user toggles
+// listening off in Tempo (clean exit, Claude stops).
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -81,6 +83,21 @@ function findLatestAssistantText(transcriptPath: string): string | null {
   return null;
 }
 
+function deliverBlock(content: string): never {
+  // Stop hook continuation: returning decision:"block" + reason tells
+  // Claude Code NOT to stop and to treat reason as the next prompt.
+  // Note: hookSpecificOutput is only valid for PreToolUse /
+  // UserPromptSubmit / PostToolUse / PostToolBatch, NOT Stop — so we
+  // do not include it here.
+  process.stdout.write(JSON.stringify({
+    decision: 'block',
+    reason: `(via Tempo) ${content}`,
+  }));
+  process.exit(0);
+}
+
+const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
+
 async function main() {
   // Whatever happens, exit 0 with empty output so Claude Code stops normally.
   // We are a passive observer; mirror failures must never block the user.
@@ -92,15 +109,8 @@ async function main() {
     process.exit(0);
   }
 
-  // Stop hook recursion guard — if the hook is being invoked because of a
-  // previous hook continuation, just exit so we don't double-mirror.
-  if (input.stop_hook_active) process.exit(0);
-
   const transcriptPath = input.transcript_path;
   if (!transcriptPath) process.exit(0);
-
-  const text = findLatestAssistantText(transcriptPath);
-  if (!text) process.exit(0);
 
   const token = readToken();
   if (!token) process.exit(0); // not enrolled — silently skip
@@ -125,44 +135,79 @@ async function main() {
 
   if (!sessionId) process.exit(0);
 
-  // 1) Mirror the assistant turn to Tempo (best-effort).
-  try {
-    await fetch(`${apiUrl}/mcp/sessions/${sessionId}/messages`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ role: 'assistant', content: text }),
-    });
-  } catch { /* swallow */ }
-
-  // 2) Consume any pending inbox messages for this session. If there are
-  //    queued user prompts (sent from Tempo web while we were mid-turn),
-  //    deliver them now by returning decision:"block" so Claude continues
-  //    with that content as the next prompt.
-  try {
-    const r = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/consume`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({}),
-    });
-    if (r.ok) {
-      const data = await r.json() as { content: string | null };
-      if (data.content && data.content.trim()) {
-        // Stop hook continuation: returning decision:"block" + reason tells
-        // Claude Code NOT to stop and to treat reason as the next prompt.
-        // Note: hookSpecificOutput is only valid for PreToolUse /
-        // UserPromptSubmit / PostToolUse / PostToolBatch, NOT Stop — so we
-        // do not include it here.
-        const out = {
-          decision: 'block',
-          reason: `(via Tempo) ${data.content}`,
-        };
-        process.stdout.write(JSON.stringify(out));
-        process.exit(0);
-      }
+  // 1) Mirror + immediate consume — only on the FIRST Stop of a turn.
+  //    When stop_hook_active=true, the current Stop is itself a continuation
+  //    triggered by a previous decision:"block" (i.e., we're inside a
+  //    listening loop). In that case we skip mirror to avoid double-
+  //    mirroring the same turn, but still enter the listening loop below.
+  if (!input.stop_hook_active) {
+    const text = findLatestAssistantText(transcriptPath);
+    if (text) {
+      try {
+        await fetch(`${apiUrl}/mcp/sessions/${sessionId}/messages`, {
+          method: 'POST', headers, body: JSON.stringify({ role: 'assistant', content: text }),
+        });
+      } catch { /* swallow */ }
     }
-  } catch { /* swallow */ }
 
-  process.exit(0);
+    // Drain any messages queued during this turn so the next Claude
+    // response includes them as user input.
+    try {
+      const r = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/consume`, {
+        method: 'POST', headers, body: JSON.stringify({}),
+      });
+      if (r.ok) {
+        const data = await r.json() as { content: string | null };
+        if (data.content && data.content.trim()) deliverBlock(data.content);
+      }
+    } catch { /* swallow */ }
+  }
+
+  // 2) Listening loop. The wait endpoint handles the listening_mode policy:
+  //    if listening is off it returns immediately with listening_canceled
+  //    and we exit normally. If on, it long-polls server-side (~25s) for
+  //    new inbox entries; we reconnect after each timeout for an unbounded
+  //    effective wait. Network errors back off and retry — the user's
+  //    workstation may have flaky connectivity but we want to keep listening.
+  let backoff = 5_000;
+  const MAX_BACKOFF = 60_000;
+  for (;;) {
+    let resp: Response;
+    try {
+      resp = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/wait`, { headers });
+    } catch {
+      await sleep(backoff);
+      backoff = Math.min(backoff * 2, MAX_BACKOFF);
+      continue;
+    }
+
+    // 4xx without retry — session terminated externally, or auth invalidated.
+    // Either way, stop listening.
+    if (resp.status === 404 || resp.status === 410 || resp.status === 401 || resp.status === 403) {
+      process.exit(0);
+    }
+    // Other non-OK: backoff and retry.
+    if (!resp.ok) {
+      await sleep(backoff);
+      backoff = Math.min(backoff * 2, MAX_BACKOFF);
+      continue;
+    }
+    backoff = 5_000; // reset on any successful response
+
+    const data = await resp.json() as {
+      content: string | null;
+      listening_canceled?: boolean;
+    };
+
+    if (data.content && data.content.trim()) deliverBlock(data.content);
+
+    // User toggled listening off (or it was off to begin with). Exit
+    // normally so Claude stops.
+    if (data.listening_canceled) process.exit(0);
+
+    // Empty timeout — server closed at the wait window with nothing
+    // queued. Reconnect immediately for the next window.
+  }
 }
 
 main().catch(() => process.exit(0));

@@ -1,6 +1,6 @@
 {
   "name": "keyq-tempo-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server bridging Claude Code sessions to KeyQ Tempo (async approvals + Tempo data access)",
   "type": "module",
   "main": "dist/index.js",
