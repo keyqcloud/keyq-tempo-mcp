@@ -135,33 +135,35 @@ async function main() {
 
   if (!sessionId) process.exit(0);
 
-  // 1) Mirror + immediate consume — only on the FIRST Stop of a turn.
-  //    When stop_hook_active=true, the current Stop is itself a continuation
-  //    triggered by a previous decision:"block" (i.e., we're inside a
-  //    listening loop). In that case we skip mirror to avoid double-
-  //    mirroring the same turn, but still enter the listening loop below.
-  if (!input.stop_hook_active) {
-    const text = findLatestAssistantText(transcriptPath);
-    if (text) {
-      try {
-        await fetch(`${apiUrl}/mcp/sessions/${sessionId}/messages`, {
-          method: 'POST', headers, body: JSON.stringify({ role: 'assistant', content: text }),
-        });
-      } catch { /* swallow */ }
-    }
-
-    // Drain any messages queued during this turn so the next Claude
-    // response includes them as user input.
+  // 1) Mirror the latest assistant turn to Tempo. Runs on EVERY Stop
+  //    event, including continuations where stop_hook_active=true. Each
+  //    such Stop corresponds to a distinct new assistant turn (Claude's
+  //    response to whatever was injected via the previous block), so
+  //    mirroring is non-duplicative — and skipping it would silently lose
+  //    every continuation turn from the web timeline.
+  const text = findLatestAssistantText(transcriptPath);
+  if (text) {
     try {
-      const r = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/consume`, {
-        method: 'POST', headers, body: JSON.stringify({}),
+      await fetch(`${apiUrl}/mcp/sessions/${sessionId}/messages`, {
+        method: 'POST', headers, body: JSON.stringify({ role: 'assistant', content: text }),
       });
-      if (r.ok) {
-        const data = await r.json() as { content: string | null };
-        if (data.content && data.content.trim()) deliverBlock(data.content);
-      }
     } catch { /* swallow */ }
   }
+
+  // 2) Drain any messages queued during this turn so the next Claude
+  //    response includes them as user input. Also runs on every Stop —
+  //    if a Tempo prompt arrived between two continuations, we want to
+  //    deliver it on the next Stop without waiting for the wait
+  //    endpoint's first poll cycle.
+  try {
+    const r = await fetch(`${apiUrl}/mcp/sessions/${sessionId}/inbox/consume`, {
+      method: 'POST', headers, body: JSON.stringify({}),
+    });
+    if (r.ok) {
+      const data = await r.json() as { content: string | null };
+      if (data.content && data.content.trim()) deliverBlock(data.content);
+    }
+  } catch { /* swallow */ }
 
   // 2) Listening loop. The wait endpoint handles the listening_mode policy:
   //    if listening is off it returns immediately with listening_canceled
