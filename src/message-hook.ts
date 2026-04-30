@@ -29,10 +29,12 @@ interface TranscriptEntry {
   message?: {
     role?: string;
     content?: string | Array<{ type?: string; text?: string }>;
+    usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
   };
   // Older variants may put role/content at the top level.
   role?: string;
   content?: string | Array<{ type?: string; text?: string }>;
+  usage?: { input_tokens?: number; output_tokens?: number };
 }
 
 function readToken(): string | null {
@@ -67,7 +69,18 @@ function extractAssistantText(entry: TranscriptEntry): string | null {
   return joined || null;
 }
 
-function findLatestAssistantText(transcriptPath: string): string | null {
+function extractInputTokens(entry: TranscriptEntry): number | null {
+  // input_tokens in the API response = the prompt size for that turn,
+  // which is effectively the current context size after that turn lands.
+  const usage = entry.message?.usage ?? entry.usage;
+  if (!usage || typeof usage.input_tokens !== 'number') return null;
+  // Cache hits are still part of context size, so include them.
+  const cacheRead = entry.message?.usage?.cache_read_input_tokens ?? 0;
+  const cacheCreate = entry.message?.usage?.cache_creation_input_tokens ?? 0;
+  return usage.input_tokens + (typeof cacheRead === 'number' ? cacheRead : 0) + (typeof cacheCreate === 'number' ? cacheCreate : 0);
+}
+
+function findLatestAssistantTurn(transcriptPath: string): { text: string; inputTokens: number | null } | null {
   let raw: string;
   try { raw = readFileSync(transcriptPath, 'utf8'); }
   catch { return null; }
@@ -77,7 +90,7 @@ function findLatestAssistantText(transcriptPath: string): string | null {
     try {
       const entry = JSON.parse(lines[i]) as TranscriptEntry;
       const text = extractAssistantText(entry);
-      if (text) return text;
+      if (text) return { text, inputTokens: extractInputTokens(entry) };
     } catch { /* skip malformed lines */ }
   }
   return null;
@@ -145,12 +158,14 @@ async function main() {
   //    response to whatever was injected via the previous block), so
   //    mirroring is non-duplicative — and skipping it would silently lose
   //    every continuation turn from the web timeline.
-  const text = findLatestAssistantText(transcriptPath);
-  if (text) {
+  const turn = findLatestAssistantTurn(transcriptPath);
+  if (turn) {
     try {
+      const body: Record<string, unknown> = { role: 'assistant', content: turn.text };
+      if (turn.inputTokens !== null) body.input_tokens = turn.inputTokens;
       await fetch(`${apiUrl}/mcp/sessions/${sessionId}/messages`, {
         method: 'POST', headers,
-        body: JSON.stringify({ role: 'assistant', content: text }),
+        body: JSON.stringify(body),
         signal: AbortSignal.timeout(SHORT_FETCH_TIMEOUT_MS),
       });
     } catch { /* swallow */ }
