@@ -35,7 +35,7 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.1.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.1.1' });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -160,7 +160,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.1.0)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.1.1)');
 }
 
 main().catch((err) => {

@@ -1,6 +1,6 @@
 {
   "name": "keyq-tempo-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MCP server for KeyQ Tempo sprint-card workflow with Claude Code (sprint-mode v1)",
   "type": "module",
   "main": "dist/index.js",

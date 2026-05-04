@@ -36,10 +36,20 @@ export async function runInstallHooks(): Promise<void> {
   const hooksDir = join(repoRoot, '.git', 'hooks');
   const target = join(hooksDir, 'pre-push');
 
+  const content = readFileSync(templatePath, 'utf8');
+
   if (existsSync(target)) {
     const existing = readFileSync(target, 'utf8');
     if (existing.includes('# tempo-sprint-mode pre-push guard')) {
-      console.error(`✓ tempo-sprint-mode pre-push hook already installed at ${target}`);
+      // Existing tempo hook — auto-upgrade to the latest template
+      // (idempotent install: re-running picks up template fixes).
+      if (existing === content) {
+        console.error(`✓ tempo-sprint-mode pre-push hook already at the current version`);
+        return;
+      }
+      writeFileSync(target, content);
+      try { chmodSync(target, 0o755); } catch { /* windows */ }
+      console.error(`✓ Upgraded tempo-sprint-mode pre-push hook at ${target}`);
       return;
     }
     console.error(`Error: ${target} already exists and is not the tempo hook.`);
@@ -48,11 +58,10 @@ export async function runInstallHooks(): Promise<void> {
   }
 
   if (!existsSync(hooksDir)) mkdirSync(hooksDir, { recursive: true });
-  const content = readFileSync(templatePath, 'utf8');
   writeFileSync(target, content);
   try { chmodSync(target, 0o755); } catch { /* windows: no-op, git for windows handles execute bit */ }
 
   console.error(`✓ Installed tempo-sprint-mode pre-push hook at ${target}`);
-  console.error(`  Refuses pushes to the target_branch from .claude/sprint-config.json`);
+  console.error(`  Refuses pushes from tempo/* branches to target_branch (.claude/sprint-config.json)`);
   console.error(`  Bypass for a one-off:  SKIP_TEMPO_HOOK=1 git push`);
 }
