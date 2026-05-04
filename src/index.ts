@@ -1,13 +1,21 @@
+// keyq-tempo-mcp v1.x — sprint-card MCP for Claude Code.
+//
+// Slimmed down from the bridge-mvp predecessor (preserved on the
+// `bridge-mvp` branch). No more session tracking, heartbeats, hooks,
+// listening loops, or question/answer relay. Just a focused tool surface
+// for the sprint-card workflow:
+//   1. Pull a card → work it → comment progress → PR → move card
+//   2. If stuck, post a comment + email the operator (their reply lands
+//      back on the card via assistant@keyq.io's [Card #N] subject shortcut)
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { runEnroll } from './enroll.js';
-import { registerSession, terminateSession, startHeartbeatLoop } from './session.js';
-import { handleAsk, handleApprove, handleNotify } from './tools/async.js';
-import * as data from './tools/data.js';
+import * as sprint from './tools/sprint.js';
+import * as helpers from './tools/helpers.js';
 
 async function main() {
-  // Subcommands.
   const argv = process.argv.slice(2);
   if (argv[0] === 'enroll') {
     await runEnroll(argv[1] || '');
@@ -21,164 +29,125 @@ async function main() {
     return;
   }
 
-  // Default: run as MCP server.
-  let session;
-  try {
-    session = await registerSession();
-  } catch (e) {
-    console.error(`[keyq-tempo-mcp] Failed to register session: ${e instanceof Error ? e.message : e}`);
-    process.exit(1);
-  }
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.0.0' });
 
-  let shuttingDown = false;
-  let heartbeatTimer: NodeJS.Timeout | undefined;
-  const shutdown = (reason: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    console.error(`[keyq-tempo-mcp] shutting down: ${reason}`);
-    const timeout = new Promise((res) => setTimeout(res, 3000));
-    Promise.race([terminateSession(session.session_id), timeout]).finally(() => process.exit(0));
-  };
-
-  heartbeatTimer = startHeartbeatLoop(session.session_id, 60_000, () => {
-    shutdown('session terminated by user');
-  });
-
-  const server = new McpServer({ name: 'keyq-tempo', version: '0.1.0' });
-
-  // --- Async (block waiting for user) ---
+  // --- Sprint card tools (the core 8) ---
 
   server.tool(
-    'ask',
-    'Ask the user a question and wait for their reply via the Tempo web UI. Blocks until answered, expires after 24h pending; tool times out after 30 min wait but the user can still respond later (visible in their Tempo session history).',
+    'tempo_next_card',
+    'Pick up the next sprint card to work on. Returns the highest-priority card on the project board that is assigned to "Claude Code" (CC) and lives in an in_progress or up_next column. Resume in_progress cards before starting new up_next ones. Returns null when nothing is queued — that means the sprint set is exhausted.',
     {
-      question: z.string().describe('The question to ask'),
-      context: z.string().optional().describe('Optional additional context'),
+      project_id: z.number().describe('Tempo project_id (one project = one board). From .claude/sprint-config.json.'),
+      assignee_initials: z.string().optional().describe('Override assignee filter (defaults to CC = Claude Code). Rare.'),
     },
-    async ({ question, context }) => ({
-      content: [{ type: 'text', text: await handleAsk(session.session_id, { question, context }) }],
-    })
+    async (args) => ({ content: [{ type: 'text', text: await sprint.nextCard(args) }] }),
   );
 
   server.tool(
-    'request_approval',
-    'Request a yes/no approval from the user. Renders Yes/No buttons in the Tempo web UI. Use for go/no-go decisions before you take an action.',
-    {
-      question: z.string().describe('The decision needing approval'),
-      context: z.string().optional().describe('Optional context for the decision'),
-    },
-    async ({ question, context }) => ({
-      content: [{ type: 'text', text: await handleApprove(session.session_id, { question, context }) }],
-    })
+    'tempo_get_card',
+    'Read a card in full — title, description, priority, due date, assignee, current column, comments thread (chronological), and attachments. Use this every time before working a card so you have the latest comments (which include any operator clarifications).',
+    { id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await sprint.getCard(args) }] }),
   );
 
   server.tool(
-    'notify',
-    'Send a fire-and-forget notification to the user (visible in Tempo web). Does not block.',
-    {
-      message: z.string().describe('The notification text'),
-    },
-    async ({ message }) => ({
-      content: [{ type: 'text', text: await handleNotify(session.session_id, { message }) }],
-    })
+    'tempo_list_cards',
+    'List all cards on a project board, grouped by column. Useful during scrum to scope the sprint set and see what is already assigned where.',
+    { project_id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await sprint.listCards(args) }] }),
   );
 
-  // --- Read data ---
-
-  server.tool('list_customers', 'List KeyQ Tempo customers (id, name).', {},
-    async () => ({ content: [{ type: 'text', text: await data.listCustomers() }] }));
-
-  server.tool('list_tickets', 'List support tickets. Filter by customer_id and/or status (open|in_progress|resolved|closed).',
-    { customer_id: z.number().optional(), status: z.string().optional() },
-    async (args) => ({ content: [{ type: 'text', text: await data.listTickets(args) }] }));
-
-  server.tool('get_ticket', 'Get full ticket detail including comments and tags.',
-    { id: z.number() },
-    async (args) => ({ content: [{ type: 'text', text: await data.getTicket(args) }] }));
-
-  server.tool('list_cards', 'List board cards for a project. If project_id is omitted, returns the list of available projects.',
-    { project_id: z.number().optional(), customer_id: z.number().optional() },
-    async (args) => ({ content: [{ type: 'text', text: await data.listCards(args) }] }));
-
-  server.tool('get_card', 'Get a board card detail (requires both id and project_id).',
-    { id: z.number(), project_id: z.number() },
-    async (args) => ({ content: [{ type: 'text', text: await data.getCard(args) }] }));
-
-  server.tool('list_tasks', 'List tasks. Filter by status (pending|in_progress|blocked|completed) and/or customer_id.',
-    { status: z.string().optional(), customer_id: z.number().optional() },
-    async (args) => ({ content: [{ type: 'text', text: await data.listTasks(args) }] }));
-
-  server.tool('get_task', 'Get a task detail.',
-    { id: z.number() },
-    async (args) => ({ content: [{ type: 'text', text: await data.getTask(args) }] }));
-
-  server.tool('list_meetings', 'List Fathom meeting summaries. Optional customer_id filter, optional limit (default 20).',
-    { customer_id: z.number().optional(), limit: z.number().optional() },
-    async (args) => ({ content: [{ type: 'text', text: await data.listMeetings(args) }] }));
-
-  server.tool('get_meeting', 'Get a meeting with summary, attendees, and action items.',
-    { id: z.number() },
-    async (args) => ({ content: [{ type: 'text', text: await data.getMeeting(args) }] }));
-
-  server.tool('list_documents', 'List a customer\'s documents (requires customer_id).',
-    { customer_id: z.number() },
-    async (args) => ({ content: [{ type: 'text', text: await data.listDocuments(args) }] }));
-
-  server.tool('read_document', 'Read a document\'s contents inline (text-based files only; binary returns metadata).',
-    { id: z.number() },
-    async (args) => ({ content: [{ type: 'text', text: await data.readDocument(args) }] }));
-
-  server.tool('list_attachments', 'List attachments for an inbox/ticket/card/task. parent_type ∈ {inbox, ticket, card, task}.',
+  server.tool(
+    'tempo_create_card',
+    'Create a new card on a project board. During scrum: use this when adding a card that emerged in the discussion (not from Fathom). Either column_id or column_name is required; if neither is given, lands in the first column on the board.',
     {
-      parent_type: z.enum(['inbox', 'ticket', 'card', 'task']),
-      parent_id: z.number(),
-    },
-    async (args) => ({ content: [{ type: 'text', text: await data.listAttachments(args) }] }));
-
-  server.tool('read_attachment', 'Read an attachment\'s contents inline (text-based files only).',
-    { id: z.number() },
-    async (args) => ({ content: [{ type: 'text', text: await data.readAttachment(args) }] }));
-
-  // --- Write ---
-
-  server.tool('create_ticket', 'Create a new support ticket for a customer.',
-    {
-      customer_id: z.number(),
+      project_id: z.number(),
+      column_id: z.number().optional(),
+      column_name: z.string().optional().describe('Match by exact name, display_group ("up_next" / "in_progress" / etc.), or case-insensitive name.'),
       title: z.string(),
       description: z.string().optional(),
-      type: z.enum(['bug', 'support', 'feature', 'other']).optional(),
+      assignee_id: z.number().optional().describe('team_member id. For sprint cards, use the Claude Code (CC) member id.'),
       priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+      due_date: z.string().optional().describe('ISO YYYY-MM-DD'),
     },
-    async (args) => ({ content: [{ type: 'text', text: await data.createTicket(args) }] }));
+    async (args) => ({ content: [{ type: 'text', text: await sprint.createCard(args) }] }),
+  );
 
-  server.tool('create_task', 'Create a new task. Optional customer_id, due_date (YYYY-MM-DD), is_global (visible to all team).',
+  server.tool(
+    'tempo_update_card',
+    'Update a card\'s fields. Critical during scrum for enriching vague Fathom-generated cards: read the card, ask the operator clarifying questions, then update the description with the captured context. Pass null to clear a nullable field.',
     {
-      title: z.string(),
-      notes: z.string().optional(),
-      customer_id: z.number().optional(),
-      due_date: z.string().optional(),
-      is_global: z.boolean().optional(),
+      id: z.number(),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      assignee_id: z.number().nullable().optional(),
+      priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+      due_date: z.string().nullable().optional(),
     },
-    async (args) => ({ content: [{ type: 'text', text: await data.createTask(args) }] }));
+    async (args) => ({ content: [{ type: 'text', text: await sprint.updateCard(args) }] }),
+  );
+
+  server.tool(
+    'tempo_comment_card',
+    'Post a progress comment on a card. Use at meaningful milestones: starting work, hitting a decision point, completing a sub-task, opening a PR. The thread is the audit trail for the operator.',
+    {
+      id: z.number(),
+      content: z.string(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await sprint.commentCard(args) }] }),
+  );
+
+  server.tool(
+    'tempo_move_card',
+    'Move a card between columns. Accepts the column name (case-insensitive) or display_group ("up_next" | "in_progress" | "in_review" | "blocked" | "completed"). When you start work, move to in_progress; when you open a PR, move to in_review; the operator manually moves to completed after merging.',
+    {
+      id: z.number(),
+      target_column: z.string().describe('Column name or display_group'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await sprint.moveCard(args) }] }),
+  );
+
+  server.tool(
+    'tempo_email_stuck',
+    'Signal that you are stuck on a card and need operator input. Posts a comment on the card with the blocker AND emails the operator (the user this device token belongs to). The operator can reply to the email; their reply lands as a follow-up comment on the same card. STOP working the card after calling this — pick up the next card or end the session.',
+    {
+      id: z.number(),
+      blocker: z.string().describe('What you tried, what is blocking, what input you need from the operator. Be specific.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await sprint.emailStuck(args) }] }),
+  );
+
+  // --- Read helpers (Fathom meetings + attachment reading) ---
+
+  server.tool(
+    'tempo_list_meetings',
+    'List recent Fathom meetings. Useful during scrum for finding the source meeting behind a Fathom-generated card, or for reviewing recent action items. Optional customer_id filter, optional limit (default 20).',
+    {
+      customer_id: z.number().optional(),
+      limit: z.number().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await helpers.listMeetings(args) }] }),
+  );
+
+  server.tool(
+    'tempo_get_meeting',
+    'Get a Fathom meeting in detail — title, summary, attendees, action items. Use during scrum to recover context for a vague Fathom-generated card.',
+    { id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await helpers.getMeeting(args) }] }),
+  );
+
+  server.tool(
+    'tempo_read_attachment',
+    'Read a text-based attachment\'s contents inline. Returns metadata only for binary files. Use when a card has an attachment that contains relevant context (a spec, a transcript, a CSV, etc.).',
+    { id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await helpers.readAttachment(args) }] }),
+  );
 
   // --- Connect transport ---
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`[keyq-tempo-mcp] Connected (session ${session.short_code} / id ${session.session_id})`);
-
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGHUP', () => shutdown('SIGHUP'));
-
-  // Claude Code closes its stdio pipes to the MCP child when /exit'ing,
-  // which doesn't always send a signal. Detect that and shut down so the
-  // session gets terminated promptly instead of lingering as a ghost
-  // heartbeating forever.
-  process.stdin.on('end', () => shutdown('stdin end'));
-  process.stdin.on('close', () => shutdown('stdin close'));
-  process.stdout.on('error', () => shutdown('stdout error'));
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.0.0)');
 }
 
 main().catch((err) => {
