@@ -1,0 +1,47 @@
+#!/bin/sh
+# tempo-sprint-mode pre-push guard
+# Refuses pushes to the configured target_branch (.claude/sprint-config.json).
+# Force-pushes to other branches (rebases on tempo/* feature branches) are
+# fine and not blocked here — the rule is "humans push to target_branch,
+# the runner pushes to tempo/* branches".
+#
+# Bypass for a one-off: SKIP_TEMPO_HOOK=1 git push
+# (Use this if you genuinely need to push to target_branch as a human, e.g.
+# to fix a botched merge or land a hotfix.)
+
+# Allow explicit bypass.
+if [ -n "$SKIP_TEMPO_HOOK" ]; then
+  exit 0
+fi
+
+CONFIG=".claude/sprint-config.json"
+
+# If sprint-config.json isn't present, this isn't a sprint-mode repo —
+# don't enforce anything. Lets the same hook live in a repo without
+# breaking normal pushes.
+if [ ! -f "$CONFIG" ]; then
+  exit 0
+fi
+
+# Read target_branch via jq if available, otherwise crude grep fallback.
+TARGET_BRANCH=""
+if command -v jq >/dev/null 2>&1; then
+  TARGET_BRANCH=$(jq -r '.target_branch // "main"' "$CONFIG" 2>/dev/null)
+else
+  TARGET_BRANCH=$(grep -o '"target_branch"[^,}]*' "$CONFIG" | sed 's/.*"\([^"]*\)"$/\1/')
+fi
+[ -z "$TARGET_BRANCH" ] && TARGET_BRANCH="main"
+
+# git pre-push hook stdin: <local-ref> <local-sha> <remote-ref> <remote-sha>
+# (one line per ref being pushed).
+while read local_ref local_sha remote_ref remote_sha; do
+  remote_branch="${remote_ref#refs/heads/}"
+  if [ "$remote_branch" = "$TARGET_BRANCH" ]; then
+    echo "🛑 tempo-sprint-mode: refused push to '$TARGET_BRANCH' (configured target branch)."
+    echo "   Sprint runner pushes only to 'tempo/*' branches; humans push to '$TARGET_BRANCH'."
+    echo "   Bypass for a one-off:  SKIP_TEMPO_HOOK=1 git push"
+    exit 1
+  fi
+done
+
+exit 0

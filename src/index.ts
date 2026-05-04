@@ -12,6 +12,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { runEnroll } from './enroll.js';
+import { runInstallHooks } from './install-hooks.js';
 import * as sprint from './tools/sprint.js';
 import * as helpers from './tools/helpers.js';
 
@@ -21,10 +22,15 @@ async function main() {
     await runEnroll(argv[1] || '');
     return;
   }
+  if (argv[0] === 'install-hooks') {
+    await runInstallHooks();
+    return;
+  }
   if (argv[0] === '--help' || argv[0] === '-h') {
     console.error('keyq-tempo-mcp\n');
     console.error('Usage:');
     console.error('  keyq-tempo-mcp enroll <code>   Enroll this device with a 6-digit code from Tempo web');
+    console.error('  keyq-tempo-mcp install-hooks   Install the tempo-sprint-mode pre-push hook into the current repo');
     console.error('  keyq-tempo-mcp                 Run as MCP server (over stdio, for Claude Code)');
     return;
   }
