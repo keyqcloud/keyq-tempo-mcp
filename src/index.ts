@@ -35,7 +35,7 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.0.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.1.0' });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -123,7 +123,14 @@ async function main() {
     async (args) => ({ content: [{ type: 'text', text: await sprint.emailStuck(args) }] }),
   );
 
-  // --- Read helpers (Fathom meetings + attachment reading) ---
+  // --- Read helpers (team members, Fathom meetings, attachments) ---
+
+  server.tool(
+    'tempo_list_team_members',
+    'List all team_members with their id, initials, and name. Use this to resolve an assignee_id without asking the operator. The sprint runner is "Claude Code" (initials CC) — assign sprint cards to its id.',
+    {},
+    async () => ({ content: [{ type: 'text', text: await helpers.listTeamMembers() }] }),
+  );
 
   server.tool(
     'tempo_list_meetings',
@@ -153,7 +160,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.0.0)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.1.0)');
 }
 
 main().catch((err) => {

@@ -11,6 +11,8 @@ interface Meeting {
   customer_id: number | null; customer_name?: string | null;
 }
 
+interface TeamMember { id: number; initials: string; name: string }
+
 const MAX_INLINE_BYTES = 64 * 1024;
 
 function fmtBytes(n: number): string {
@@ -26,6 +28,18 @@ function isTextish(contentType: string | null): boolean {
     || /\bxml\b/i.test(contentType)
     || /\bjavascript\b/i.test(contentType)
     || /\bcsv\b/i.test(contentType);
+}
+
+// Team members are referenced by id when assigning cards. The default
+// sprint assignee is the "Claude Code" team_member (initials=CC). This
+// returns the full list so the skill can resolve names ↔ ids without
+// asking the operator.
+export async function listTeamMembers(): Promise<string> {
+  const rows = await api.get<TeamMember[]>('/team-members');
+  if (rows.length === 0) return 'No team members.';
+  const headerLine = 'id  initials  name';
+  const rowLines = rows.map((m) => `${String(m.id).padEnd(3)}  ${m.initials.padEnd(8)}  ${m.name}`);
+  return [headerLine, ...rowLines].join('\n');
 }
 
 export async function listMeetings(opts: { customer_id?: number; limit?: number }): Promise<string> {
