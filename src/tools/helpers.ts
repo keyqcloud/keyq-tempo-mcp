@@ -13,6 +13,11 @@ interface Meeting {
 
 interface TeamMember { id: number; initials: string; name: string }
 
+interface Project {
+  id: number; code: string | null; name: string;
+  customer_id: number | null; archived_at?: string | null;
+}
+
 const MAX_INLINE_BYTES = 64 * 1024;
 
 function fmtBytes(n: number): string {
@@ -39,6 +44,21 @@ export async function listTeamMembers(): Promise<string> {
   if (rows.length === 0) return 'No team members.';
   const headerLine = 'id  initials  name';
   const rowLines = rows.map((m) => `${String(m.id).padEnd(3)}  ${m.initials.padEnd(8)}  ${m.name}`);
+  return [headerLine, ...rowLines].join('\n');
+}
+
+// Projects are boards: one project = one board (its project_id is what every
+// other sprint tool needs). This resolves a project_code (e.g. "TEMPO") or
+// name to its id without the operator having to look it up. Skips archived
+// projects unless include_archived is set.
+export async function listProjects(opts: { include_archived?: boolean } = {}): Promise<string> {
+  const rows = await api.get<Project[]>('/projects');
+  const visible = opts.include_archived ? rows : rows.filter((p) => !p.archived_at);
+  if (visible.length === 0) return 'No projects.';
+  const headerLine = 'id   code        name';
+  const rowLines = visible.map((p) =>
+    `${String(p.id).padEnd(4)} ${String(p.code ?? '').padEnd(11)} ${p.name}` +
+    `${p.archived_at ? ' (archived)' : ''}`);
   return [headerLine, ...rowLines].join('\n');
 }
 
