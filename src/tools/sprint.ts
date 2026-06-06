@@ -19,10 +19,12 @@ function pretty(obj: unknown): string {
   return JSON.stringify(obj, null, 2);
 }
 
-export async function nextCard(args: { project_id: number; assignee_initials?: string }): Promise<string> {
+export async function nextCard(args: { project_id: number; assignee_id?: number; assignee_initials?: string }): Promise<string> {
   const qs = new URLSearchParams();
   qs.set('project_id', String(args.project_id));
-  if (args.assignee_initials) qs.set('assignee_initials', args.assignee_initials);
+  // Prefer the stable assignee_id; only fall back to (mutable) initials if no id given.
+  if (args.assignee_id != null) qs.set('assignee_id', String(args.assignee_id));
+  else if (args.assignee_initials) qs.set('assignee_initials', args.assignee_initials);
   const r = await api.get<{ card: BoardCard | null; reason?: string }>(`/board-cards/next?${qs}`);
   if (!r.card) return r.reason || 'No card available.';
   return pretty(r.card);

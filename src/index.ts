@@ -35,16 +35,17 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.1.1' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.3.0' });
 
   // --- Sprint card tools (the core 8) ---
 
   server.tool(
     'tempo_next_card',
-    'Pick up the next sprint card to work on. Returns the highest-priority card on the project board that is assigned to "Claude Code" (CC) and lives in an in_progress or up_next column. Resume in_progress cards before starting new up_next ones. Returns null when nothing is queued — that means the sprint set is exhausted.',
+    'Pick up the next sprint card to work on. Returns the highest-priority card on the project board that is assigned to the given team_member (by assignee_id) and lives in an in_progress or up_next column. Resume in_progress cards before starting new up_next ones. Returns null when nothing is queued — that means the sprint set is exhausted.',
     {
       project_id: z.number().describe('Tempo project_id (one project = one board). From .claude/sprint-config.json.'),
-      assignee_initials: z.string().optional().describe('Override assignee filter (defaults to CC = Claude Code). Rare.'),
+      assignee_id: z.number().optional().describe('Team_member id to scope to (PREFERRED — stable across renames). A fleet box passes its own member id (its lane). Resolve ids via tempo_list_team_members.'),
+      assignee_initials: z.string().optional().describe('Legacy initials filter (mutable — a member can be renamed). Used only if assignee_id is omitted; defaults to CC.'),
     },
     async (args) => ({ content: [{ type: 'text', text: await sprint.nextCard(args) }] }),
   );
@@ -169,7 +170,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.2.0)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.3.0)');
 }
 
 main().catch((err) => {
