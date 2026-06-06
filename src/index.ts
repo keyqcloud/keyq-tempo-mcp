@@ -123,7 +123,16 @@ async function main() {
     async (args) => ({ content: [{ type: 'text', text: await sprint.emailStuck(args) }] }),
   );
 
-  // --- Read helpers (team members, Fathom meetings, attachments) ---
+  // --- Read helpers (projects, team members, Fathom meetings, attachments) ---
+
+  server.tool(
+    'tempo_list_projects',
+    'List all projects (each project is one board) with their id, code, and name. Use this to resolve a project_id from a project code/name (e.g. "TEMPO") without asking the operator — every other sprint tool needs a project_id. Archived projects are hidden unless include_archived is true.',
+    {
+      include_archived: z.boolean().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await helpers.listProjects(args) }] }),
+  );
 
   server.tool(
     'tempo_list_team_members',
@@ -160,7 +169,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.1.1)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.2.0)');
 }
 
 main().catch((err) => {
