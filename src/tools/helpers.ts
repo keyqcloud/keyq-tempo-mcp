@@ -51,10 +51,14 @@ export async function listTeamMembers(): Promise<string> {
 // other sprint tool needs). This resolves a project_code (e.g. "TEMPO") or
 // name to its id without the operator having to look it up. Skips archived
 // projects unless include_archived is set.
-export async function listProjects(opts: { include_archived?: boolean } = {}): Promise<string> {
+export async function listProjects(opts: { include_archived?: boolean; query?: string } = {}): Promise<string> {
   const rows = await api.get<Project[]>('/projects');
-  const visible = opts.include_archived ? rows : rows.filter((p) => !p.archived_at);
-  if (visible.length === 0) return 'No projects.';
+  let visible = opts.include_archived ? rows : rows.filter((p) => !p.archived_at);
+  if (opts.query) {
+    const q = opts.query.toLowerCase();
+    visible = visible.filter((p) => (p.code ?? '').toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+  }
+  if (visible.length === 0) return opts.query ? `No projects matching "${opts.query}".` : 'No projects.';
   const headerLine = 'id   code        name';
   const rowLines = visible.map((p) =>
     `${String(p.id).padEnd(4)} ${String(p.code ?? '').padEnd(11)} ${p.name}` +

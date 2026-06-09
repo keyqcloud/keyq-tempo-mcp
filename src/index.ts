@@ -35,7 +35,7 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.3.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.4.0' });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -128,9 +128,10 @@ async function main() {
 
   server.tool(
     'tempo_list_projects',
-    'List all projects (each project is one board) with their id, code, and name. Use this to resolve a project_id from a project code/name (e.g. "TEMPO") without asking the operator — every other sprint tool needs a project_id. Archived projects are hidden unless include_archived is true.',
+    'List or SEARCH projects (each project is one board) with their id, code, and name. Use this to resolve a project_id from a project code/name (e.g. "TEMPO", "kyte") without asking the operator — every other sprint tool needs a project_id. Pass `query` to filter by a case-insensitive substring of the code or name. Archived projects are hidden unless include_archived is true.',
     {
       include_archived: z.boolean().optional(),
+      query: z.string().optional().describe('Case-insensitive substring matched against project code or name (e.g. "kyte"). Omit to list all.'),
     },
     async (args) => ({ content: [{ type: 'text', text: await helpers.listProjects(args) }] }),
   );
@@ -170,7 +171,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.3.0)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.4.0)');
 }
 
 main().catch((err) => {
