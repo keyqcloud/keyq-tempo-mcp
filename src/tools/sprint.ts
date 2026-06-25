@@ -105,6 +105,22 @@ export async function moveCard(args: { id: number; target_column: string }): Pro
   return pretty({ ok: true, moved_to_column_id: columnId });
 }
 
+// Move a card to a DIFFERENT board (project). target_column is optional: when
+// omitted the API preserves the card's display_group on the destination board
+// (falling back to its first column). When given, it is resolved against the
+// TARGET board's columns (name or display_group).
+export async function moveCardToBoard(args: { id: number; target_project_id: number; target_column?: string }): Promise<string> {
+  const body: Record<string, unknown> = { project_id: args.target_project_id };
+  if (args.target_column) {
+    body.column_id = await resolveColumnId(args.target_project_id, args.target_column);
+  }
+  const r = await api.put<{ ok: boolean; project_id: number; column_id: number; position: number }>(
+    `/board-cards/${args.id}/move-to-board`,
+    body,
+  );
+  return pretty(r);
+}
+
 export async function emailStuck(args: { id: number; blocker: string }): Promise<string> {
   const r = await api.post<{ ok: boolean; comment_posted: boolean; email_sent: boolean }>(
     `/board-cards/${args.id}/email-stuck`,

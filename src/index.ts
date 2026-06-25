@@ -35,7 +35,7 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.4.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.5.0' });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -115,6 +115,17 @@ async function main() {
   );
 
   server.tool(
+    'tempo_move_card_to_board',
+    'Move a card to a DIFFERENT board (project) — e.g. when a card was filed on the wrong board. Distinct from tempo_move_card, which only changes columns within the same board. Resolve target_project_id with tempo_list_projects. By default the card keeps its display_group on the destination board (an in_review card lands in the target board\'s review column); pass target_column to place it explicitly.',
+    {
+      id: z.number(),
+      target_project_id: z.number().describe('Destination board / project_id. Resolve from a code/name via tempo_list_projects.'),
+      target_column: z.string().optional().describe('Optional destination column on the TARGET board — name or display_group. Omit to preserve the card\'s current display_group.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await sprint.moveCardToBoard(args) }] }),
+  );
+
+  server.tool(
     'tempo_email_stuck',
     'Signal that you are stuck on a card and need operator input. Posts a comment on the card with the blocker AND emails the operator (the user this device token belongs to). The operator can reply to the email; their reply lands as a follow-up comment on the same card. STOP working the card after calling this — pick up the next card or end the session.',
     {
@@ -171,7 +182,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.4.0)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.5.0)');
 }
 
 main().catch((err) => {
