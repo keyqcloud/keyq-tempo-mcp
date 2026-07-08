@@ -16,6 +16,7 @@ import { runInstallHooks } from './install-hooks.js';
 import * as sprint from './tools/sprint.js';
 import * as helpers from './tools/helpers.js';
 import * as msgraph from './tools/msgraph.js';
+import * as worklists from './tools/worklists.js';
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -36,7 +37,7 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.6.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.7.0' });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -257,11 +258,153 @@ async function main() {
     async (args) => ({ content: [{ type: 'text', text: await msgraph.sendEmail(args) }] }),
   );
 
+  // --- Tasks (freeform to-dos, NOT sprint cards) ---
+
+  server.tool(
+    'tempo_list_tasks',
+    'List the operator\'s freeform tasks (the Tasks list — distinct from sprint cards on a board). Completed tasks are hidden unless include_completed is set. Optionally filter by status or assignee_id. Returns id, title, status, due date, customer, and assignee for each.',
+    {
+      status: z.enum(['pending', 'in_progress', 'blocked', 'completed']).optional(),
+      assignee_id: z.number().optional().describe('team_member id (resolve via tempo_list_team_members).'),
+      include_completed: z.boolean().optional().describe('Include completed tasks (default false).'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.listTasks(args) }] }),
+  );
+
+  server.tool(
+    'tempo_create_task',
+    'Create a freeform task. Only title is required. Assign to a team member (assigned_to) or mark is_global so anyone can claim it. status defaults to "pending".',
+    {
+      title: z.string(),
+      notes: z.string().optional(),
+      status: z.enum(['pending', 'in_progress', 'blocked', 'completed']).optional(),
+      assigned_to: z.number().optional().describe('team_member id.'),
+      customer_id: z.number().optional(),
+      is_global: z.boolean().optional().describe('Unassigned pool task anyone can claim.'),
+      due_date: z.string().optional().describe('ISO YYYY-MM-DD'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.createTask(args) }] }),
+  );
+
+  server.tool(
+    'tempo_update_task',
+    'Update a task. Set status to "completed" to mark it done (stamps completed_at). Pass only the fields you want to change; assigned_to/customer_id/due_date accept null to clear.',
+    {
+      id: z.number(),
+      title: z.string().optional(),
+      notes: z.string().optional(),
+      status: z.enum(['pending', 'in_progress', 'blocked', 'completed']).optional(),
+      assigned_to: z.number().nullable().optional(),
+      customer_id: z.number().nullable().optional(),
+      is_global: z.boolean().optional(),
+      due_date: z.string().nullable().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.updateTask(args) }] }),
+  );
+
+  server.tool(
+    'tempo_delete_task',
+    'Permanently delete a task (and its attachments). Irreversible — prefer marking it completed via tempo_update_task unless the operator wants it gone.',
+    { id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.deleteTask(args) }] }),
+  );
+
+  // --- Support tickets ---
+
+  server.tool(
+    'tempo_list_tickets',
+    'List support tickets, newest first. Optionally filter by status (open | in_progress | closed) or customer_id. Returns id, title, status, priority, type, customer, assignee, and tags.',
+    {
+      status: z.string().optional().describe('open | in_progress | closed'),
+      customer_id: z.number().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.listTickets(args) }] }),
+  );
+
+  server.tool(
+    'tempo_get_ticket',
+    'Read one support ticket in full — description, reporter, assignee, tags, and the full comment thread.',
+    { id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.getTicket(args) }] }),
+  );
+
+  server.tool(
+    'tempo_create_ticket',
+    'Open a support ticket for a customer. customer_id and title are required. type defaults to "support" (bug | support | feature | other); priority defaults to "medium". Assigning to a team member emails them.',
+    {
+      customer_id: z.number().describe('Required. The customer this ticket is for.'),
+      title: z.string(),
+      description: z.string().optional(),
+      type: z.enum(['bug', 'support', 'feature', 'other']).optional(),
+      priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+      assigned_to: z.number().optional().describe('team_member id.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.createTicket(args) }] }),
+  );
+
+  server.tool(
+    'tempo_update_ticket',
+    'Update a support ticket. Changing status emails the reporter. Pass only the fields to change; assigned_to accepts null to unassign.',
+    {
+      id: z.number(),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      type: z.enum(['bug', 'support', 'feature', 'other']).optional(),
+      priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+      status: z.string().optional().describe('open | in_progress | closed'),
+      assigned_to: z.number().nullable().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.updateTicket(args) }] }),
+  );
+
+  server.tool(
+    'tempo_comment_ticket',
+    'Add a comment to a support ticket. Notifies the other party (reporter or assignee) by email.',
+    { id: z.number(), content: z.string() },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.commentTicket(args) }] }),
+  );
+
+  // --- Leads (sales intake) ---
+
+  server.tool(
+    'tempo_list_leads',
+    'List sales leads, newest first. Junk/sales solicitations and archived leads are hidden by default. Pass status to view a specific bucket (incl. junk/sales), or archived=true to view the archive. Returns id, name, contact, status, company, and source.',
+    {
+      status: z.enum(['new', 'contacted', 'qualified', 'won', 'lost', 'junk', 'sales']).optional(),
+      archived: z.boolean().optional().describe('Show archived leads instead of active ones.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.listLeads(args) }] }),
+  );
+
+  server.tool(
+    'tempo_get_lead',
+    'Read one lead in full — contact details, the inbound message, and any existing customer matches (by email/domain).',
+    { id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.getLead(args) }] }),
+  );
+
+  server.tool(
+    'tempo_update_lead',
+    'Set a lead\'s status. Use "junk" for spam and "sales" for sales solicitations (both hidden from the default list); the pipeline statuses are new → contacted → qualified → won/lost.',
+    {
+      id: z.number(),
+      status: z.enum(['new', 'contacted', 'qualified', 'won', 'lost', 'junk', 'sales']),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.updateLead(args) }] }),
+  );
+
+  server.tool(
+    'tempo_archive_lead',
+    'Archive a lead (reversible; hidden from the default list) or unarchive it. Pass archived=false to restore.',
+    { id: z.number(), archived: z.boolean().describe('true to archive, false to unarchive.') },
+    async (args) => ({ content: [{ type: 'text', text: await worklists.archiveLead(args) }] }),
+  );
+
   // --- Connect transport ---
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.6.0)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.7.0)');
 }
 
 main().catch((err) => {
