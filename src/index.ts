@@ -17,6 +17,7 @@ import * as sprint from './tools/sprint.js';
 import * as helpers from './tools/helpers.js';
 import * as msgraph from './tools/msgraph.js';
 import * as worklists from './tools/worklists.js';
+import * as entities from './tools/entities.js';
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -398,6 +399,79 @@ async function main() {
     'Archive a lead (reversible; hidden from the default list) or unarchive it. Pass archived=false to restore.',
     { id: z.number(), archived: z.boolean().describe('true to archive, false to unarchive.') },
     async (args) => ({ content: [{ type: 'text', text: await worklists.archiveLead(args) }] }),
+  );
+
+  // --- Customers (CRUD; writes are admin-only server-side) ---
+
+  server.tool(
+    'tempo_list_customers',
+    'List customers with their id, name, internal flag, and ad-hoc hourly rate. Use this to resolve a customer_id from a name (needed by tempo_create_ticket, tempo_create_project, etc.). Pass `query` to filter by a case-insensitive name substring.',
+    {
+      query: z.string().optional().describe('Case-insensitive substring of the customer name.'),
+      include_internal: z.boolean().optional().describe('Set false to hide internal (non-billed) customers. Default: show all.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await entities.listCustomers(args) }] }),
+  );
+
+  server.tool(
+    'tempo_create_customer',
+    'Create a customer. Only name is required. Set is_internal for a department / internal project (no client portal or invoicing). ad_hoc_hourly_rate is the default spot rate. Admin only.',
+    {
+      name: z.string(),
+      ad_hoc_hourly_rate: z.number().optional(),
+      is_internal: z.boolean().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await entities.createCustomer(args) }] }),
+  );
+
+  server.tool(
+    'tempo_update_customer',
+    'Update a customer\'s name, ad-hoc rate, or internal flag. Pass only the fields to change. Admin only.',
+    {
+      id: z.number(),
+      name: z.string().optional(),
+      ad_hoc_hourly_rate: z.number().optional(),
+      is_internal: z.boolean().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await entities.updateCustomer(args) }] }),
+  );
+
+  server.tool(
+    'tempo_delete_customer',
+    'Permanently delete a customer. Irreversible and high-impact (projects, tickets, and invoicing reference customers) — confirm with the operator first. Admin only.',
+    { id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await entities.deleteCustomer(args) }] }),
+  );
+
+  // --- Projects (write side; list via tempo_list_projects) ---
+
+  server.tool(
+    'tempo_create_project',
+    'Create a project (one project = one board). Requires customer_id (resolve via tempo_list_customers), a short code (e.g. "TEMPO"), and a name. Admin only.',
+    {
+      customer_id: z.number(),
+      code: z.string().describe('Short board code, e.g. "TEMPO", "KYTE".'),
+      name: z.string(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await entities.createProject(args) }] }),
+  );
+
+  server.tool(
+    'tempo_update_project',
+    'Rename a project or change its code. Pass only the field(s) to change (the other is preserved). Admin only.',
+    {
+      id: z.number(),
+      code: z.string().optional(),
+      name: z.string().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await entities.updateProject(args) }] }),
+  );
+
+  server.tool(
+    'tempo_delete_project',
+    'Permanently delete a project and its board. Irreversible — confirm with the operator first. Admin only.',
+    { id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await entities.deleteProject(args) }] }),
   );
 
   // --- Connect transport ---
