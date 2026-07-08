@@ -15,6 +15,7 @@ import { runEnroll } from './enroll.js';
 import { runInstallHooks } from './install-hooks.js';
 import * as sprint from './tools/sprint.js';
 import * as helpers from './tools/helpers.js';
+import * as msgraph from './tools/msgraph.js';
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -35,7 +36,7 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.5.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.6.0' });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -178,11 +179,89 @@ async function main() {
     async (args) => ({ content: [{ type: 'text', text: await helpers.readAttachment(args) }] }),
   );
 
+  // --- Microsoft 365: operator's own Outlook calendar + mailbox ---
+  // These act on the enrolled user's own MS account (via the API's /me/*
+  // Graph routes). Requires the operator to have connected Microsoft with
+  // mail scopes granted (Settings → Calendar in Tempo web).
+
+  server.tool(
+    'tempo_list_calendar_events',
+    'List the operator\'s own Outlook calendar events in a time window. Defaults to the next 7 days. Returns each event\'s time, subject, location, Teams/join link, attendees, and id. Use before scheduling to check availability, or to answer "what\'s on my calendar".',
+    {
+      start: z.string().optional().describe('ISO datetime for window start (default: now).'),
+      end: z.string().optional().describe('ISO datetime for window end (default: now + 7 days).'),
+      top: z.number().optional().describe('Max events to return (default 25, max 100).'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await msgraph.listCalendarEvents(args) }] }),
+  );
+
+  server.tool(
+    'tempo_create_calendar_event',
+    'Create an event on the operator\'s own Outlook calendar. Provide start_iso and either end_iso or duration_minutes (default 30). Attendees are invited by email. Set online_provider="teams" to attach a Teams meeting. Confirm details with the operator before creating.',
+    {
+      title: z.string(),
+      start_iso: z.string().describe('ISO datetime with offset, e.g. 2026-07-10T14:00:00-04:00'),
+      end_iso: z.string().optional(),
+      duration_minutes: z.number().optional().describe('Used if end_iso is omitted (default 30).'),
+      attendees: z.array(z.string()).optional().describe('Required-attendee email addresses.'),
+      optional_attendees: z.array(z.string()).optional(),
+      body: z.string().optional().describe('Event description / agenda.'),
+      online_provider: z.enum(['teams', 'external', 'none']).optional().describe('"teams" attaches a Teams meeting; "external" uses external_link.'),
+      external_link: z.string().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await msgraph.createCalendarEvent(args) }] }),
+  );
+
+  server.tool(
+    'tempo_list_emails',
+    'List messages from the operator\'s own Outlook mailbox, newest first. Returns sender, subject, preview, read/attachment flags, and a message id (pass to tempo_read_email). Pass `search` to full-text search (relevance-ranked), or `folder` (e.g. "inbox", "sentitems", "drafts").',
+    {
+      top: z.number().optional().describe('Max messages (default 25, max 100).'),
+      search: z.string().optional().describe('Full-text search across the mailbox. Cannot combine with newest-first ordering.'),
+      folder: z.string().optional().describe('Well-known folder name: inbox, sentitems, drafts, archive, deleteditems.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await msgraph.listEmails(args) }] }),
+  );
+
+  server.tool(
+    'tempo_read_email',
+    'Read one message in full (headers + body) from the operator\'s mailbox. Get the id from tempo_list_emails.',
+    { id: z.string().describe('Message id from tempo_list_emails.') },
+    async (args) => ({ content: [{ type: 'text', text: await msgraph.readEmail(args) }] }),
+  );
+
+  server.tool(
+    'tempo_draft_email',
+    'Create a DRAFT email in the operator\'s mailbox WITHOUT sending it. Safe default for composing on their behalf — the operator reviews (and can edit in Outlook) before sending. Returns a draft_id to pass to tempo_send_email. Body is plain text unless html=true.',
+    {
+      to: z.array(z.string()).describe('Recipient email addresses.'),
+      subject: z.string().optional(),
+      body: z.string().optional(),
+      cc: z.array(z.string()).optional(),
+      html: z.boolean().optional().describe('Treat body as HTML (default: plain text).'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await msgraph.draftEmail(args) }] }),
+  );
+
+  server.tool(
+    'tempo_send_email',
+    'SEND an email from the operator\'s mailbox — this delivers immediately. Either pass draft_id to send a draft made with tempo_draft_email, or compose inline with to/subject/body. Because this is irreversible, confirm with the operator before calling; prefer tempo_draft_email when unsure.',
+    {
+      draft_id: z.string().optional().describe('Send an existing draft (from tempo_draft_email). Omit to compose inline.'),
+      to: z.array(z.string()).optional().describe('Required when composing inline (no draft_id).'),
+      subject: z.string().optional(),
+      body: z.string().optional(),
+      cc: z.array(z.string()).optional(),
+      html: z.boolean().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await msgraph.sendEmail(args) }] }),
+  );
+
   // --- Connect transport ---
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.5.0)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.6.0)');
 }
 
 main().catch((err) => {
