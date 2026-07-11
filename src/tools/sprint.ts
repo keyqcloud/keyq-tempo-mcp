@@ -35,6 +35,40 @@ export async function getCard(args: { id: number }): Promise<string> {
   return pretty(r);
 }
 
+// --- Project scope doc (epic #334) ---
+
+export async function getProjectDoc(args: { project_id: number }): Promise<string> {
+  const r = await api.get<{ content: string | null; version: number; updated_at?: string; updated_by?: number | null }>(
+    `/projects/${args.project_id}/doc`,
+  );
+  if (r.content === null || r.version === 0) {
+    return `No scope doc exists yet for project ${args.project_id} (version 0). To create one, call tempo_update_project_doc(project_id=${args.project_id}, content=<markdown>, base_version=0).`;
+  }
+  return pretty(r);
+}
+
+export async function updateProjectDoc(args: { project_id: number; content: string; base_version: number }): Promise<string> {
+  try {
+    const r = await api.put<{ version: number }>(
+      `/projects/${args.project_id}/doc`,
+      { content: args.content, base_version: args.base_version },
+    );
+    return pretty({ ok: true, version: r.version });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) {
+      // The doc changed since base_version — fetch the current version so the
+      // calling agent knows exactly what to rebase onto.
+      let currentVersion: number | string = 'unknown';
+      try {
+        const fresh = await api.get<{ version: number }>(`/projects/${args.project_id}/doc`);
+        currentVersion = fresh.version;
+      } catch { /* keep 'unknown' */ }
+      return `CONFLICT — your write was NOT applied. The scope doc for project ${args.project_id} changed since you loaded it (you sent base_version=${args.base_version}; current version is ${currentVersion}). To resolve: (1) call tempo_get_project_doc(project_id=${args.project_id}) to read the current content + version, (2) re-apply your intended change on top of that new content, (3) call tempo_update_project_doc again with base_version set to the current version. Do not retry with the old base_version.`;
+    }
+    throw e;
+  }
+}
+
 export async function listCards(args: { project_id: number }): Promise<string> {
   const r = await api.get<{ columns: BoardColumn[]; cards: BoardCard[] }>(`/projects/${args.project_id}/board`);
   return pretty(r);

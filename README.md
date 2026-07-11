@@ -84,6 +84,8 @@ The sprint-mode skill (`~/.claude/skills/sprint-mode/`) reads this config to kno
 - `tempo_comment_card(id, content)` — progress comment
 - `tempo_move_card(id, target_column)` — column transition
 - `tempo_email_stuck(id, blocker)` — comment + email operator
+- `tempo_get_project_doc(project_id)` — read a board's live scope/context doc (read before planning work on a board)
+- `tempo_update_project_doc(project_id, content, base_version)` — create/update the scope doc (optimistic concurrency; 0 to create)
 
 ### Read helpers (3 tools)
 

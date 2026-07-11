@@ -149,6 +149,24 @@ async function main() {
   );
 
   server.tool(
+    'tempo_get_project_doc',
+    'Read a project board\'s live scope document — its purpose, current priorities, in/out-of-scope boundaries, card-authoring conventions, and decisions log. READ THIS before planning or working on a board so you share the operator\'s context. Returns {content, version}; a null content / version 0 means no doc exists yet.',
+    { project_id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await sprint.getProjectDoc(args) }] }),
+  );
+
+  server.tool(
+    'tempo_update_project_doc',
+    'Create or update a project board\'s scope document (see tempo_get_project_doc). Optimistic concurrency: pass base_version = the version you last read (0 to create). Success returns the new {version}. On a version conflict the result text explains how to rebase and retry — follow it exactly; never force an old base_version.',
+    {
+      project_id: z.number(),
+      content: z.string(),
+      base_version: z.number().describe('The version you last read via tempo_get_project_doc; 0 to create a new doc.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await sprint.updateProjectDoc(args) }] }),
+  );
+
+  server.tool(
     'tempo_list_team_members',
     'List all team_members with their id, initials, and name. Use this to resolve an assignee_id without asking the operator. The sprint runner is "Claude Code" (initials CC) — assign sprint cards to its id.',
     {},
