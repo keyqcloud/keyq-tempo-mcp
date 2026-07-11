@@ -18,6 +18,7 @@ import * as helpers from './tools/helpers.js';
 import * as msgraph from './tools/msgraph.js';
 import * as worklists from './tools/worklists.js';
 import * as entities from './tools/entities.js';
+import * as designs from './tools/designs.js';
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -38,7 +39,7 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.7.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.8.0' });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -492,11 +493,68 @@ async function main() {
     async (args) => ({ content: [{ type: 'text', text: await entities.deleteProject(args) }] }),
   );
 
+  // --- Designs (epic #379) — UI/UX mockup authoring (A-path) ---
+
+  server.tool(
+    'tempo_list_designs',
+    'List the UI/UX designs (mockups) on a project board. Each design has its own version train (v1, v2, …). Returns id, frame type, version count, and title.',
+    { project_id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await designs.listDesigns(args) }] }),
+  );
+
+  server.tool(
+    'tempo_create_design',
+    'Create a new UI/UX design (mockup) on a project board. Starts with an empty draft v1 you then populate with tempo_author_design_screens. frame_type is "mobile" (default) for now.',
+    {
+      project_id: z.number(),
+      title: z.string().describe('e.g. "Mobile App 1", "Web App".'),
+      frame_type: z.enum(['mobile', 'web', 'tablet']).optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await designs.createDesign(args) }] }),
+  );
+
+  server.tool(
+    'tempo_get_design',
+    'Read a design in full — its versions (with status draft/shared/approved), and the current version\'s screens + OPEN feedback. Read this before revising so you see the reviewer\'s pins to address.',
+    { design_id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await designs.getDesign(args) }] }),
+  );
+
+  server.tool(
+    'tempo_author_design_screens',
+    'Author screens for a design against the shell template. Each screen is a STATIC HTML fragment (Tailwind classes; the shell provides Tailwind/fonts/frame — do NOT include <html>/<head>/<script>/nav chrome). Screens are sanitized server-side and upserted by screen_key. Lands in a DRAFT version (propose-not-publish); if the current version is already shared/approved, a new carry-forward draft is created automatically. Pass publish:true to mark the version SHARED (client-visible) in one step.',
+    {
+      design_id: z.number(),
+      screens: z.array(z.object({
+        screen_key: z.string().describe('stable slug within the design, e.g. "home", "settings"'),
+        title: z.string().optional(),
+        html: z.string().describe('static HTML fragment for this one screen (Tailwind classes, no JS)'),
+        position: z.number().optional(),
+      })).describe('The full ordered set of screens for this version (upsert by screen_key; omitted keys are removed).'),
+      version: z.number().optional().describe('Target an existing draft version number; omit to use/auto-create the working draft.'),
+      changelog: z.string().optional(),
+      publish: z.boolean().optional().describe('Mark the version SHARED after authoring so clients/share-links can see it.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await designs.authorDesignScreens(args) }] }),
+  );
+
+  server.tool(
+    'tempo_create_design_share',
+    'Create a public share link for a design so a client can review the SHARED version and leave pin feedback (no login). permission: "view" (read-only), "comment" (default, can pin), or "ai". Set ai_enabled to expose the AI revise button to the client (produces team-visible draft suggestions). Returns the /preview/{token} URL.',
+    {
+      design_id: z.number(),
+      permission: z.enum(['view', 'comment', 'ai']).optional(),
+      ai_enabled: z.boolean().optional(),
+      expires_at: z.string().optional().describe('ISO datetime; omit for no expiry.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await designs.createDesignShare(args) }] }),
+  );
+
   // --- Connect transport ---
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.7.0)');
+  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.8.0)');
 }
 
 main().catch((err) => {

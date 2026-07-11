@@ -48,6 +48,7 @@ export const api = {
   get: <T>(path: string, opts?: { auth?: boolean; timeoutMs?: number }) => call<T>('GET', path, undefined, opts),
   post: <T>(path: string, body?: unknown, opts?: { auth?: boolean }) => call<T>('POST', path, body, opts),
   put: <T>(path: string, body?: unknown) => call<T>('PUT', path, body),
+  patch: <T>(path: string, body?: unknown) => call<T>('PATCH', path, body),
   delete: <T>(path: string) => call<T>('DELETE', path),
   fetchRaw: (path: string) => call<Response>('GET', path, undefined, { raw: true }),
 };
