@@ -51,18 +51,28 @@ export async function listTeamMembers(): Promise<string> {
 // other sprint tool needs). This resolves a project_code (e.g. "TEMPO") or
 // name to its id without the operator having to look it up. Skips archived
 // projects unless include_archived is set.
-export async function listProjects(opts: { include_archived?: boolean; query?: string } = {}): Promise<string> {
-  const rows = await api.get<Project[]>('/projects');
+export async function listProjects(opts: { include_archived?: boolean; query?: string; customer_id?: number } = {}): Promise<string> {
+  const url = '/projects' + (opts.customer_id ? `?customer_id=${opts.customer_id}` : '');
+  const rows = await api.get<Project[]>(url);
   let visible = opts.include_archived ? rows : rows.filter((p) => !p.archived_at);
   if (opts.query) {
     const q = opts.query.toLowerCase();
     visible = visible.filter((p) => (p.code ?? '').toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
   }
   if (visible.length === 0) return opts.query ? `No projects matching "${opts.query}".` : 'No projects.';
+  // Boards are 1:1 with a customer; resolve names so each row shows its owner
+  // (best-effort — fall back to the id if the customers read is unavailable).
+  const custName = new Map<number, string>();
+  try {
+    const customers = await api.get<{ id: number; name: string }[]>('/customers');
+    for (const c of customers) custName.set(c.id, c.name);
+  } catch { /* owner names are optional decoration */ }
   const headerLine = 'id   code        name';
-  const rowLines = visible.map((p) =>
-    `${String(p.id).padEnd(4)} ${String(p.code ?? '').padEnd(11)} ${p.name}` +
-    `${p.archived_at ? ' (archived)' : ''}`);
+  const rowLines = visible.map((p) => {
+    const owner = p.customer_id != null ? (custName.get(p.customer_id) ?? `customer #${p.customer_id}`) : '';
+    return `${String(p.id).padEnd(4)} ${String(p.code ?? '').padEnd(11)} ${p.name}` +
+      `${owner ? ` — ${owner}` : ''}${p.archived_at ? ' (archived)' : ''}`;
+  });
   return [headerLine, ...rowLines].join('\n');
 }
 

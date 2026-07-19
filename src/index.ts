@@ -39,7 +39,7 @@ async function main() {
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.8.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: '1.9.0' });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -143,10 +143,11 @@ async function main() {
 
   server.tool(
     'tempo_list_projects',
-    'List or SEARCH projects (each project is one board) with their id, code, and name. Use this to resolve a project_id from a project code/name (e.g. "TEMPO", "kyte") without asking the operator — every other sprint tool needs a project_id. Pass `query` to filter by a case-insensitive substring of the code or name. Archived projects are hidden unless include_archived is true.',
+    'List or SEARCH projects (each project is one board) with their id, code, name, and owning customer. Use this to resolve a project_id from a project code/name (e.g. "TEMPO", "kyte") without asking the operator — every other sprint tool needs a project_id. Pass `query` to filter by a case-insensitive substring of the code or name, or `customer_id` to list every board belonging to one customer (a customer can own several boards; resolve the id via tempo_list_customers). Archived projects are hidden unless include_archived is true.',
     {
       include_archived: z.boolean().optional(),
       query: z.string().optional().describe('Case-insensitive substring matched against project code or name (e.g. "kyte"). Omit to list all.'),
+      customer_id: z.number().optional().describe('List only boards owned by this customer. Resolve the id via tempo_list_customers. A customer often owns multiple boards.'),
     },
     async (args) => ({ content: [{ type: 'text', text: await helpers.listProjects(args) }] }),
   );
