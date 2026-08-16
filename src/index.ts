@@ -70,7 +70,7 @@ async function main() {
 
   server.tool(
     'tempo_create_card',
-    'Create a new card on a project board. During scrum: use this when adding a card that emerged in the discussion (not from Fathom). Either column_id or column_name is required; if neither is given, lands in the first column on the board.',
+    'Create a new card on a project board. During scrum: use this when adding a card that emerged in the discussion (not from a meeting). Either column_id or column_name is required; if neither is given, lands in the first column on the board.',
     {
       project_id: z.number(),
       column_id: z.number().optional(),
@@ -86,7 +86,7 @@ async function main() {
 
   server.tool(
     'tempo_update_card',
-    'Update a card\'s fields. Critical during scrum for enriching vague Fathom-generated cards: read the card, ask the operator clarifying questions, then update the description with the captured context. Pass null to clear a nullable field.',
+    'Update a card\'s fields. Critical during scrum for enriching vague meeting-generated cards: read the card, ask the operator clarifying questions, then update the description with the captured context. Pass null to clear a nullable field.',
     {
       id: z.number(),
       title: z.string().optional(),
@@ -139,7 +139,7 @@ async function main() {
     async (args) => ({ content: [{ type: 'text', text: await sprint.emailStuck(args) }] }),
   );
 
-  // --- Read helpers (projects, team members, Fathom meetings, attachments) ---
+  // --- Read helpers (projects, team members, recorded meetings, attachments) ---
 
   server.tool(
     'tempo_list_projects',
@@ -179,7 +179,7 @@ async function main() {
 
   server.tool(
     'tempo_list_meetings',
-    'List recent Fathom meetings. Useful during scrum for finding the source meeting behind a Fathom-generated card, or for reviewing recent action items. Optional customer_id filter, optional limit (default 20).',
+    'List recent recorded meetings — both bot-recorded calls and in-person recordings. Useful during scrum for finding the source meeting behind a card, or for reviewing recent action items. Optional customer_id filter, optional limit (default 20).',
     {
       customer_id: z.number().optional(),
       limit: z.number().optional(),
@@ -189,7 +189,7 @@ async function main() {
 
   server.tool(
     'tempo_get_meeting',
-    'Get a Fathom meeting in detail — title, summary, attendees, action items. Use during scrum to recover context for a vague Fathom-generated card.',
+    'Get a recorded meeting in detail — title, summary, attendees, action items. Use during scrum to recover context for a vague card.',
     { id: z.number() },
     async (args) => ({ content: [{ type: 'text', text: await helpers.getMeeting(args) }] }),
   );

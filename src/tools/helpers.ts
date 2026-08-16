@@ -1,14 +1,25 @@
 // Read-only helpers that are useful during scrum sessions and while working
 // cards. Trimmed down from the bridge-mvp data.ts to just what sprint mode
-// reaches for: Fathom meetings (action-item context for cards) + attachment
+// reaches for: recorded meetings (action-item context for cards) + attachment
 // reading (PDFs / docs attached to cards).
 
 import { api } from '../api.js';
 
+// The in-house recorder's shape (GET /meetings). NOT the legacy Fathom one:
+// Fathom was retired in 2026-08 and its archive is frozen, so reading it meant
+// answering "what came up in recent meetings" from a table that stopped growing
+// at the July cutover — truthfully worded and months out of date.
 interface Meeting {
-  id: number; title: string; summary: string | null; meeting_date: string;
-  duration: number; recording_url: string | null; invitees: string; action_items: string;
+  id: number; source: string; title: string | null; summary: string | null;
+  meeting_date: string; scheduled_start: string | null; duration: number | null;
+  status: string; processing_level: string; action_items: string | null;
   customer_id: number | null; customer_name?: string | null;
+  has_transcript?: number; purged_at?: string | null;
+}
+
+interface MeetingDetail extends Meeting {
+  transcript_text: string | null;
+  participants: string | null;
 }
 
 interface TeamMember { id: number; initials: string; name: string }
@@ -79,38 +90,74 @@ export async function listProjects(opts: { include_archived?: boolean; query?: s
 export async function listMeetings(opts: { customer_id?: number; limit?: number }): Promise<string> {
   const params: string[] = [];
   if (opts.customer_id) params.push(`customer_id=${opts.customer_id}`);
-  const url = '/fathom/meetings' + (params.length ? '?' + params.join('&') : '');
+  const url = '/meetings' + (params.length ? '?' + params.join('&') : '');
   const rows = await api.get<Meeting[]>(url);
   const limit = opts.limit ?? 20;
   if (rows.length === 0) return 'No meetings.';
   return rows.slice(0, limit).map((m) => {
     const mins = Math.round((m.duration || 0) / 60);
-    return `#${m.id} ${m.meeting_date.slice(0, 10)} (${mins}m) — ${m.title}` +
-      `${m.customer_name ? ` — ${m.customer_name}` : ''}`;
+    const when = (m.scheduled_start || m.meeting_date).slice(0, 10);
+    // Untitled is common — Google Meet supplies no title — so fall back to
+    // something that distinguishes one row from another.
+    const titled = !!m.title?.trim();
+    const label = titled ? m.title : `${m.customer_name || 'Untitled'} (${when})`;
+    const flags = [
+      m.purged_at ? 'purged' : null,
+      m.status !== 'ready' ? m.status : null,
+      m.source === 'upload' ? 'in-person' : null,
+    ].filter(Boolean).join(', ');
+    return `#${m.id} ${when} (${mins}m) — ${label}` +
+      `${m.customer_name && titled ? ` — ${m.customer_name}` : ''}` +
+      `${flags ? ` [${flags}]` : ''}`;
   }).join('\n');
 }
 
 export async function getMeeting(opts: { id: number }): Promise<string> {
-  const rows = await api.get<Meeting[]>('/fathom/meetings');
-  const m = rows.find((x) => x.id === opts.id);
-  if (!m) return `Meeting #${opts.id} not found.`;
-  const invitees = (() => { try { return JSON.parse(m.invitees) as { name?: string; email: string }[]; } catch { return []; } })();
-  const actions = (() => { try { return JSON.parse(m.action_items) as { description: string; assignee?: string; completed: boolean }[]; } catch { return []; } })();
+  // Reads the recorder's detail endpoint directly. Deliberately does NOT fall
+  // back to the legacy Fathom archive on a miss: `meetings` and `fathom_meetings`
+  // are separate tables with independent id sequences, so meeting #5 can exist in
+  // both. A silent fallback would sometimes return a different meeting than the
+  // one asked for, which is worse than saying it is not here.
+  let m: MeetingDetail;
+  try {
+    m = await api.get<MeetingDetail>(`/meetings/${opts.id}`);
+  } catch {
+    return `Meeting #${opts.id} not found in the recorder. `
+      + `Note: meetings from before the 2026-08 Fathom retirement live in a separate frozen archive `
+      + `with its own id numbering, and are not readable through this tool.`;
+  }
+  if (m.purged_at) {
+    return `Meeting #${m.id} was purged on ${m.purged_at.slice(0, 10)}. `
+      + `Its recording, transcript and derived summary were destroyed; only the tombstone remains.`;
+  }
+
+  const attendees = (() => {
+    try { return (JSON.parse(m.participants || '[]') as { name?: string }[]).map((p) => p.name).filter(Boolean); }
+    catch { return [] as (string | undefined)[]; }
+  })();
+  const actions = (() => {
+    try { return JSON.parse(m.action_items || '[]') as { description: string; assignee?: string | null }[]; }
+    catch { return []; }
+  })();
+
+  const when = m.scheduled_start || m.meeting_date;
   const lines = [
-    `# Meeting #${m.id}: ${m.title}`,
-    `Date: ${m.meeting_date} | Duration: ${Math.round((m.duration || 0) / 60)}m`,
-    m.customer_name ? `Customer: ${m.customer_name}` : '',
-    m.recording_url ? `Recording: ${m.recording_url}` : '',
+    `# Meeting #${m.id}: ${m.title?.trim() || '(untitled)'}`,
+    `Date: ${when} | Duration: ${Math.round((m.duration || 0) / 60)}m | Source: ${m.source}`,
+    m.customer_name ? `Customer: ${m.customer_name}` : 'Customer: (unmapped)',
+    m.status !== 'ready' ? `Status: ${m.status}` : '',
+    // Says why there is no summary, rather than leaving a reader to assume the
+    // meeting was empty. 'record'/'transcribe' are deliberate consent settings.
+    m.processing_level !== 'full' ? `Processing level: ${m.processing_level} (no AI summary by design)` : '',
   ].filter(Boolean);
-  if (invitees.length) lines.push('', `Attendees: ${invitees.map((i) => i.name || i.email).join(', ')}`);
+
+  if (attendees.length) lines.push('', `Attendees: ${attendees.join(', ')}`);
   if (m.summary) lines.push('', '## Summary', m.summary);
   if (actions.length) {
     lines.push('', '## Action items');
-    for (const a of actions) {
-      const mark = a.completed ? '[x]' : '[ ]';
-      lines.push(`${mark} ${a.description}${a.assignee ? ` (${a.assignee})` : ''}`);
-    }
+    for (const a of actions) lines.push(`- ${a.description}${a.assignee ? ` (${a.assignee})` : ''}`);
   }
+  if (!m.summary && m.has_transcript) lines.push('', '_Transcript exists but no summary was generated._');
   return lines.join('\n');
 }
 
