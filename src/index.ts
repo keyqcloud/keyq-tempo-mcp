@@ -12,6 +12,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { runEnroll } from './enroll.js';
+import { runEnrollFleet } from './enroll-fleet.js';
 import { runInstallHooks } from './install-hooks.js';
 import * as sprint from './tools/sprint.js';
 import * as helpers from './tools/helpers.js';
@@ -22,6 +23,10 @@ import * as designs from './tools/designs.js';
 
 async function main() {
   const argv = process.argv.slice(2);
+  if (argv[0] === 'enroll-fleet') {
+    await runEnrollFleet(argv[1] || '');
+    return;
+  }
   if (argv[0] === 'enroll') {
     await runEnroll(argv[1] || '');
     return;
@@ -33,7 +38,8 @@ async function main() {
   if (argv[0] === '--help' || argv[0] === '-h') {
     console.error('keyq-tempo-mcp\n');
     console.error('Usage:');
-    console.error('  keyq-tempo-mcp enroll <code>   Enroll this device with a 6-digit code from Tempo web');
+    console.error('  keyq-tempo-mcp enroll <code>        Enroll this device with a 6-digit code from Tempo web');
+  console.error('  keyq-tempo-mcp enroll-fleet <code>  Enroll this machine as a fleet box (code from the Fleet page)');
     console.error('  keyq-tempo-mcp install-hooks   Install the tempo-sprint-mode pre-push hook into the current repo');
     console.error('  keyq-tempo-mcp                 Run as MCP server (over stdio, for Claude Code)');
     return;
