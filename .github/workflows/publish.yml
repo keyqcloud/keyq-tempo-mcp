@@ -1,0 +1,67 @@
+# Publish to npm when package.json's version changes.
+#
+# Exists because the package silently was not published at all, and nothing said so. A box
+# running `npx keyq-tempo-mcp enroll-fleet <code>` got a 404 from the registry — the fleet's
+# whole one-command onboarding rested on a package that had never shipped.
+#
+# Version-change triggered rather than tag-triggered, deliberately: bumping the version IS
+# the release, so there is no second ceremony to forget. A tag you have to remember to push
+# is the same failure in a different costume.
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - 'src/**'
+      - '.github/workflows/publish.yml'
+  # Manual runs exist for the first publish, and for recovering when a run failed after a
+  # version bump had already landed on main.
+  workflow_dispatch:
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Compare against what is actually on the registry rather than against the previous
+      # commit. A re-run, a revert, or a failed earlier publish all leave those two
+      # disagreeing, and the registry is the one that decides whether `npx` works.
+      - name: Is this version already published?
+        id: check
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          LOCAL=$(node -p "require('./package.json').version")
+          REMOTE=$(npm view "$NAME" version 2>/dev/null || echo "none")
+          echo "local=$LOCAL remote=$REMOTE"
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME@$LOCAL is already on npm — nothing to do."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.publish == 'true'
+        run: npm ci
+
+      # Build explicitly rather than leaning on `prepare`. A publish that silently shipped a
+      # stale dist/ would be worse than one that failed: the package would exist, install
+      # fine, and run yesterday's code.
+      - if: steps.check.outputs.publish == 'true'
+        run: npm run build
+
+      - if: steps.check.outputs.publish == 'true'
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
