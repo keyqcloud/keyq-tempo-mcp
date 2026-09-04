@@ -1,5 +1,5 @@
 import { hostname, platform, homedir } from 'node:os';
-import { mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, chmodSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { getApiUrl, writeToken } from './config.js';
 
@@ -23,6 +23,60 @@ function say(msg: string): void { console.error(msg); }
 interface ReportReply {
   agent: { id: number; label: string; name: string } | null;
   projects: { project_id: number; code: string; name: string }[];
+}
+
+interface BootstrapReply {
+  files: { name: string; content: string; executable: boolean }[];
+}
+
+/**
+ * Pull this box's ops scripts from Tempo.
+ *
+ * The circle this breaks: the scripts live in a private repo, so fetching them needs a
+ * GitHub credential, and the script that obtains that credential is one of the scripts. The
+ * old answer was to have a human place a PAT by hand - which stopped being the design in
+ * #692, and stayed in the instructions anyway. Tempo now serves the files, minting and
+ * spending the GitHub token server-side, so nothing but the device token is needed here.
+ *
+ * Returns how it went rather than throwing: a box that enrolled but could not fetch scripts
+ * is in a real and recoverable state, and it must be reported as exactly that. Claiming
+ * success would be the silent half-configured box this whole design exists to prevent.
+ */
+async function fetchOpsScripts(apiUrl: string, token: string): Promise<{ ok: boolean; count: number; error?: string }> {
+  let reply: BootstrapReply;
+  try {
+    const res = await fetch(`${apiUrl}/fleet-agents/me/bootstrap`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      return { ok: false, count: 0, error: body.error || `HTTP ${res.status}` };
+    }
+    reply = await res.json() as BootstrapReply;
+  } catch (e) {
+    return { ok: false, count: 0, error: e instanceof Error ? e.message : 'network error' };
+  }
+
+  if (!reply.files?.length) return { ok: false, count: 0, error: 'the API returned no files' };
+
+  // Write to a temp name and rename, so an interrupted fetch cannot leave a truncated
+  // script that would run and half-work. Box-local files are never in this set, so there
+  // is nothing here to clobber.
+  try {
+    mkdirSync(CFG, { recursive: true });
+    for (const f of reply.files) {
+      const dest = join(CFG, f.name);
+      const tmp = `${dest}.tmp`;
+      writeFileSync(tmp, Buffer.from(f.content, 'base64'));
+      // Mode comes from the repo, not from the extension: work-runbook.md must not be
+      // executable, since the agent must not be able to run or rewrite its instructions.
+      try { chmodSync(tmp, f.executable ? 0o755 : 0o644); } catch { /* windows: best effort */ }
+      renameSync(tmp, dest);
+    }
+  } catch (e) {
+    return { ok: false, count: 0, error: e instanceof Error ? e.message : 'could not write' };
+  }
+  return { ok: true, count: reply.files.length };
 }
 
 export async function runEnrollFleet(code: string): Promise<void> {
@@ -96,17 +150,37 @@ export async function runEnrollFleet(code: string): Promise<void> {
     ? `Granted boards: ${projects.map(p => p.code).join(', ')}`
     : 'Granted boards: none yet — grant one on the Fleet page and this box will pick it up.');
 
-  // Say plainly what is NOT done, and why it cannot be done from here. The fleet scripts
-  // live in a private repo, so fetching them needs a GitHub token this box does not have -
-  // that is credential pull, and it is deliberately separate work. Reporting a box as ready
-  // when it cannot fetch its own runbook is the silent half-configured state to avoid.
   say('');
   say('Tempo side is done: this box authenticates as itself and is scoped to the boards');
   say('above. It cannot read any other board, whoever registered it.');
+
+  // Fetch the ops scripts with the credential just issued. This is the step that used to be
+  // a hand-placed PAT and a paragraph of instructions.
   say('');
-  say('Still to do on this box (needs a GitHub credential, which does not travel yet):');
-  say('  1. Put an org GitHub PAT at ~/.config/tempo-fleet/tokens/<org>   (chmod 600)');
-  say('  2. bash ~/.config/tempo-fleet/fleet-sync.sh          # fetch the fleet scripts');
-  say('  3. clone the granted repos, then: node ~/.config/tempo-fleet/fleet-provision.js');
-  say('  4. schedule run-fleet.sh (cron, launchd, or Task Scheduler)');
+  say('Fetching ops scripts...');
+  const scripts = await fetchOpsScripts(apiUrl, token);
+  if (scripts.ok) {
+    say(`\u2713 ${scripts.count} script(s) written to ${CFG}.`);
+    say('');
+    say('Still to do on this box:');
+    say(`  1. node ${join(CFG, 'fleet-provision.js')}     # clone the granted repos`);
+    say('  2. schedule run-fleet.sh (cron, launchd, or Task Scheduler)');
+    say('');
+    say('No GitHub credential is needed on this box for the ops scripts, and none is stored');
+    say('for them: work repos are authenticated per run with a short-lived token from Tempo.');
+    return;
+  }
+
+  // Enrolled but not provisioned. Named as a distinct state, loudly, because it is the one
+  // that otherwise looks like success - the box has a token, Tempo lists it, and nothing
+  // says the scripts never arrived until a scheduled run does nothing at 3am.
+  say(`\u2717 Could not fetch the ops scripts: ${scripts.error}`);
+  say('');
+  say('This box is ENROLLED but NOT provisioned. Enrolment stands - do not ask for a new');
+  say('code. Re-run this once the cause is fixed, or sync by hand if the box already has a');
+  say('copy of fleet-sync.sh.');
+  say('');
+  say('Most likely causes, in order: this box has no board granted yet (grant one on the');
+  say('Fleet page), or the GitHub App has no access to the ops repo.');
+  process.exitCode = 1;
 }
