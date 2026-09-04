@@ -41,10 +41,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # NO registry-url. Setting it makes setup-node write an .npmrc containing
+      # _authToken=${NODE_AUTH_TOKEN}, and with no token that authenticates as nobody — npm
+      # sees an explicit credential config and never falls back to OIDC, so Trusted
+      # Publishing is silently bypassed. It fails as a 404 on PUT, which reads like the
+      # package is missing rather than like an auth problem.
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
 
       # Compare against what is actually on the registry rather than against the previous
       # commit. A re-run, a revert, or a failed earlier publish all leave those two
