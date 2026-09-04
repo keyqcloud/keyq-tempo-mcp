@@ -1,6 +1,6 @@
 {
   "name": "@keyqinc/tempo-mcp",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "MCP server for KeyQ Tempo sprint-card workflow with Claude Code (sprint-mode v1)",
   "type": "module",
   "main": "dist/index.js",
@@ -29,6 +29,14 @@
     "sprint"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keyqcloud/keyq-tempo-mcp.git"
+  },
+  "homepage": "https://github.com/keyqcloud/keyq-tempo-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/keyqcloud/keyq-tempo-mcp/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.0"
