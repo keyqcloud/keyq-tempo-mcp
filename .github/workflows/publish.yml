@@ -7,6 +7,8 @@
 # Version-change triggered rather than tag-triggered, deliberately: bumping the version IS
 # the release, so there is no second ceremony to forget. A tag you have to remember to push
 # is the same failure in a different costume.
+#
+# Authenticates by Trusted Publishing, so there is no NPM_TOKEN to store or rotate.
 name: Publish to npm
 
 on:
@@ -23,6 +25,15 @@ on:
 concurrency:
   group: publish-npm
   cancel-in-progress: false
+
+# Trusted Publishing (OIDC) rather than a stored NPM_TOKEN. npm itself recommends this for
+# CI, and it is the better answer here for a reason this project keeps running into: a
+# stored token is one more credential with an expiry date that nothing watches. This has
+# none - GitHub proves the workflow's identity per run, and npm trusts that specific
+# repo+workflow rather than a secret someone has to rotate.
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   publish:
@@ -61,7 +72,13 @@ jobs:
       - if: steps.check.outputs.publish == 'true'
         run: npm run build
 
+      # Trusted Publishing needs a recent npm; the one bundled with Node is often older
+      # than the OIDC support, and the failure reads as a plain auth error rather than as
+      # "your npm is too old".
+      - if: steps.check.outputs.publish == 'true'
+        run: npm install -g npm@latest
+
+      # No NODE_AUTH_TOKEN: npm exchanges the workflow's OIDC identity for a short-lived
+      # credential itself. Nothing here is stored, and nothing expires on a calendar.
       - if: steps.check.outputs.publish == 'true'
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
