@@ -8,7 +8,8 @@
 # the release, so there is no second ceremony to forget. A tag you have to remember to push
 # is the same failure in a different costume.
 #
-# Authenticates by Trusted Publishing, so there is no NPM_TOKEN to store or rotate.
+# Authenticates by Trusted Publishing, so there is no NPM_TOKEN to store or rotate, and
+# STAGES rather than publishes - a person approves each release. See the last step.
 name: Publish to npm
 
 on:
@@ -53,6 +54,11 @@ jobs:
       # Compare against what is actually on the registry rather than against the previous
       # commit. A re-run, a revert, or a failed earlier publish all leave those two
       # disagreeing, and the registry is the one that decides whether `npx` works.
+      #
+      # A STAGED version is deliberately invisible here - it is not on the registry yet.
+      # So this says "publish" for something already awaiting approval, and the stage step
+      # then fails on the duplicate. Correct, if briefly confusing: the work to do is in
+      # the approval queue, not here.
       - name: Is this version already published?
         id: check
         run: |
@@ -82,7 +88,30 @@ jobs:
       - if: steps.check.outputs.publish == 'true'
         run: npm install -g npm@latest
 
-      # No NODE_AUTH_TOKEN: npm exchanges the workflow's OIDC identity for a short-lived
-      # credential itself. Nothing here is stored, and nothing expires on a calendar.
+      # STAGE, do not publish. No NODE_AUTH_TOKEN either way: npm exchanges the workflow's
+      # OIDC identity for a short-lived credential itself, so nothing is stored and nothing
+      # expires on a calendar.
+      #
+      # The trusted publisher is deliberately NOT granted "Allow npm publish". This uploads
+      # the version to a queue where it is live to nobody until a person approves it:
+      #
+      #   npm stage list                 # on a machine where you are logged in
+      #   npm stage view <stage-id>      # inspect what CI actually built
+      #   npm stage approve <stage-id>   # promote it (passkey / 2FA)
+      #   npm stage reject <stage-id>    # discard it
+      #
+      # Those subcommands cannot use OIDC by design - approval requires proof of presence.
+      # That is the point, and the extra click is worth it for THIS package specifically:
+      # fleet boxes install it with `npx -y`, so a bad version does not sit in a registry
+      # waiting to be depended on. It runs on our own machines - the ones holding Tempo
+      # device tokens and minting GitHub App credentials - at the next scheduled tick. PR
+      # review before merge is the first gate; this is the second, and it is the one an
+      # attacker holding repo write cannot walk through.
+      #
+      # A pending approval breaks nothing: the previously published version stays live.
+      #
+      # Re-running after a version is staged but not yet approved fails on the duplicate.
+      # That is deliberate. It should be loud rather than skipped, because the fix is to go
+      # approve or reject whatever is already waiting.
       - if: steps.check.outputs.publish == 'true'
-        run: npm publish --access public
+        run: npm stage publish --access public
