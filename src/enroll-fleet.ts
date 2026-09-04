@@ -1,6 +1,7 @@
 import { hostname, platform, homedir } from 'node:os';
 import { mkdirSync, writeFileSync, existsSync, chmodSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { getApiUrl, writeToken } from './config.js';
 
 /**
@@ -92,6 +93,72 @@ async function fetchOpsScripts(apiUrl: string, token: string): Promise<{ ok: boo
     return { ok: false, count: 0, error: e instanceof Error ? e.message : 'could not write' };
   }
   return { ok: true, count: reply.files.length };
+}
+
+
+/**
+ * Make `git clone` work on this box, without leaving a credential on it.
+ *
+ * The failure this prevents is a nasty one. `run-fleet.sh` and `fleet-add-project.sh` both
+ * export GH_TOKEN and assume git will use it - but git does not read that variable. It only
+ * works because `gh` can act as a git credential helper AND does read GH_TOKEN, so a box
+ * needs `gh auth setup-git` to have been run once. P1 and M1 work because somebody did that
+ * by hand long ago and nothing recorded it.
+ *
+ * On a box where it was never run, a clone fails with:
+ *
+ *     fatal: could not read Username for 'https://github.com'
+ *
+ * which reads as a bad token rather than as missing configuration, and sends you looking in
+ * entirely the wrong place. L1 lost half an hour to exactly that today.
+ *
+ * Neither step is fatal. A box that enrols but cannot install gh is still correctly enrolled
+ * and can be fixed by hand; failing the whole enrolment over it would be a worse trade.
+ */
+function ensureGitHubCli(): { gh: boolean; helper: boolean; note?: string } {
+  const run = (cmd: string, args: string[], timeout = 180_000): string | null => {
+    try {
+      return execFileSync(cmd, args, { encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch { return null; }
+  };
+
+  let have = run('gh', ['--version'], 10_000) !== null;
+
+  if (!have) {
+    // Non-interactive by construction: `sudo -n` fails immediately rather than sitting at a
+    // password prompt inside a detached enrolment nobody is watching.
+    if (process.platform === 'darwin') {
+      run('brew', ['install', 'gh']);
+    } else if (process.platform === 'linux') {
+      if (run('sudo', ['-n', 'true'], 5_000) !== null) {
+        run('sudo', ['-n', 'apt-get', 'update', '-qq'], 120_000);
+        if (run('sudo', ['-n', 'apt-get', 'install', '-y', 'gh']) === null) {
+          run('sudo', ['-n', 'dnf', 'install', '-y', 'gh']);
+        }
+      } else {
+        return { gh: false, helper: false, note: 'no passwordless sudo, so gh could not be installed' };
+      }
+    } else {
+      return { gh: false, helper: false, note: `no install recipe for ${process.platform}` };
+    }
+    have = run('gh', ['--version'], 10_000) !== null;
+  }
+
+  if (!have) return { gh: false, helper: false, note: 'install did not produce a working gh' };
+
+  // Writes git's credential.helper for github.com. Deliberately NOT dependent on holding a
+  // token right now: this only configures WHERE git should ask, and the answer at run time
+  // comes from GH_TOKEN, which the runner brokers per run. So it works on a box that has no
+  // boards granted yet and therefore cannot obtain a credential at all.
+  const ok = run('gh', ['auth', 'setup-git'], 30_000) !== null;
+  if (ok) return { gh: true, helper: true };
+
+  // Fall back to writing what setup-git would have written. Same effect; the only loss is
+  // the absolute path to the binary, so gh has to be on PATH at run time - which run-fleet
+  // ensures for itself.
+  const wrote = run('git', ['config', '--global', 'credential.https://github.com.helper',
+    '!gh auth git-credential'], 10_000) !== null;
+  return { gh: true, helper: wrote, note: wrote ? undefined : 'could not configure git to use gh' };
 }
 
 export async function runEnrollFleet(code: string): Promise<void> {
@@ -209,6 +276,20 @@ export async function runEnrollFleet(code: string): Promise<void> {
   const scripts = await fetchOpsScripts(apiUrl, token);
   if (scripts.ok) {
     say(`\u2713 ${scripts.count} script(s) written to ${CFG}.`);
+
+    say('Setting up git access...');
+    const gh = ensureGitHubCli();
+    if (gh.gh && gh.helper) {
+      say('\u2713 gh is installed and git is configured to use it for GitHub.');
+    } else {
+      // Named rather than passed over. This box will clone fine by hand and fail on a
+      // scheduled run, which is the worst way to find out.
+      say(`\u2717 git access is NOT set up${gh.note ? ` (${gh.note})` : ''}.`);
+      say('  Clones will fail with "could not read Username for https://github.com".');
+      say('  Fix on this box with:  gh auth setup-git');
+      say(gh.gh ? '' : '  (install gh first: apt-get install gh, dnf install gh, or brew install gh)');
+    }
+
     say('');
     say('Still to do on this box:');
     say('  1. Install Claude Code and log in.  The runner shells out to `claude`, and');
