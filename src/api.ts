@@ -12,7 +12,7 @@ export class ApiError extends Error {
 function authHeader(): Record<string, string> {
   const token = readToken();
   if (!token) {
-    throw new ApiError(401, 'Not enrolled. Run: npx keyq-tempo-mcp enroll <code>');
+    throw new ApiError(401, 'Not enrolled. Run: npx @keyqinc/tempo-mcp enroll <code>');
   }
   return { Authorization: `Bearer ${token}` };
 }

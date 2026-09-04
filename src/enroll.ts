@@ -32,7 +32,7 @@ export async function runEnroll(code: string): Promise<void> {
   console.error(`    "mcpServers": {`);
   console.error(`      "keyq-tempo": {`);
   console.error(`        "command": "npx",`);
-  console.error(`        "args": ["-y", "keyq-tempo-mcp"]`);
+  console.error(`        "args": ["-y", "@keyqinc/tempo-mcp"]`);
   console.error(`      }`);
   console.error(`    }`);
   console.error(`  }`);

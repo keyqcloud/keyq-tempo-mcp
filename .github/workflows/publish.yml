@@ -1,7 +1,7 @@
 # Publish to npm when package.json's version changes.
 #
 # Exists because the package silently was not published at all, and nothing said so. A box
-# running `npx keyq-tempo-mcp enroll-fleet <code>` got a 404 from the registry — the fleet's
+# running `npx @keyqinc/tempo-mcp enroll-fleet <code>` got a 404 from the registry — the fleet's
 # whole one-command onboarding rested on a package that had never shipped.
 #
 # Version-change triggered rather than tag-triggered, deliberately: bumping the version IS
