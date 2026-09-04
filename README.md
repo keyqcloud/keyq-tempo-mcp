@@ -28,7 +28,7 @@ In Tempo web → **Team Members** → toggle **Claude Code bridge** on for the u
 In Tempo web → **Claude Sessions** tab → **Connect a Claude Code session**. You'll get a 6-digit code valid for 5 minutes.
 
 ```sh
-npx keyq-tempo-mcp enroll 123456
+npx @keyqinc/tempo-mcp enroll 123456
 ```
 
 This stores a long-lived device token at `~/.keyq-tempo/token` (mode 0600).
@@ -40,7 +40,7 @@ This stores a long-lived device token at `~/.keyq-tempo/token` (mode 0600).
   "mcpServers": {
     "keyq-tempo": {
       "command": "npx",
-      "args": ["-y", "keyq-tempo-mcp"]
+      "args": ["-y", "@keyqinc/tempo-mcp"]
     }
   }
 }

@@ -16,7 +16,7 @@ This is **sprint-mode v1**: a minimal, stateless tool surface over the Tempo API
 ## Stack
 - Node 20+, TypeScript 5.7 (strict), **ESM**. Build via **tsup** → single `dist/index.js` with a `#!/usr/bin/env node` shebang.
 - Deps: `@modelcontextprotocol/sdk` (1.29) and `zod` (3.25) only. Transport: **stdio**.
-- Published to npm as `keyq-tempo-mcp`; users run `npx keyq-tempo-mcp`.
+- Published to npm as `keyq-tempo-mcp`; users run `npx @keyqinc/tempo-mcp`.
 
 ## Commands
 ```bash
@@ -28,12 +28,12 @@ No tests, **no CI** (`.github/` absent). Release = bump version in `package.json
 
 ## Setup (user-facing)
 1. Admin enables the Claude Code bridge for the team member in Tempo web.
-2. `npx keyq-tempo-mcp enroll <6-digit-code>` (code from web → Claude Sessions tab) → writes `~/.keyq-tempo/token`.
+2. `npx @keyqinc/tempo-mcp enroll <6-digit-code>` (code from web → Claude Sessions tab) → writes `~/.keyq-tempo/token`.
 3. Add to Claude Code `mcp.json`:
    ```json
-   { "mcpServers": { "keyq-tempo": { "command": "npx", "args": ["-y", "keyq-tempo-mcp"] } } }
+   { "mcpServers": { "keyq-tempo": { "command": "npx", "args": ["-y", "@keyqinc/tempo-mcp"] } } }
    ```
-4. Optional per-repo: `npx keyq-tempo-mcp install-hooks` (pre-push guard) + `.claude/sprint-config.json`.
+4. Optional per-repo: `npx @keyqinc/tempo-mcp install-hooks` (pre-push guard) + `.claude/sprint-config.json`.
 
 ## Layout
 ```

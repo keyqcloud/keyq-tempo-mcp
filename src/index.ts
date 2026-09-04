@@ -1,4 +1,14 @@
-// keyq-tempo-mcp v1.x — sprint-card MCP for Claude Code.
+// @keyqinc/tempo-mcp — sprint-card MCP for Claude Code.
+//
+// Published under the @keyqinc scope. The unscoped `keyq-tempo-mcp` is deprecated and frozen
+// at 1.11.0: npm has no user-account -> organization transfer for unscoped packages, so
+// republishing under the scope was the only way to move it under the org.
+
+// Keep in step with package.json on every release. These used to be three separate literals
+// that disagreed (package 1.11.0 / server handshake 1.9.0 / connect log 1.8.0) — harmless
+// until you are debugging a box and believe the version it prints.
+const PKG = '@keyqinc/tempo-mcp';
+const VERSION = '1.12.0';
 //
 // Slimmed down from the bridge-mvp predecessor (preserved on the
 // `bridge-mvp` branch). No more session tracking, heartbeats, hooks,
@@ -36,16 +46,16 @@ async function main() {
     return;
   }
   if (argv[0] === '--help' || argv[0] === '-h') {
-    console.error('keyq-tempo-mcp\n');
+    console.error(`${PKG} v${VERSION}\n`);
     console.error('Usage:');
-    console.error('  keyq-tempo-mcp enroll <code>        Enroll this device with a 6-digit code from Tempo web');
-  console.error('  keyq-tempo-mcp enroll-fleet <code>  Enroll this machine as a fleet box (code from the Fleet page)');
-    console.error('  keyq-tempo-mcp install-hooks   Install the tempo-sprint-mode pre-push hook into the current repo');
-    console.error('  keyq-tempo-mcp                 Run as MCP server (over stdio, for Claude Code)');
+    console.error('  npx @keyqinc/tempo-mcp enroll <code>        Enroll this device with a 6-digit code from Tempo web');
+    console.error('  npx @keyqinc/tempo-mcp enroll-fleet <code>  Enroll this machine as a fleet box (code from the Fleet page)');
+    console.error('  npx @keyqinc/tempo-mcp install-hooks        Install the tempo-sprint-mode pre-push hook into the current repo');
+    console.error('  npx @keyqinc/tempo-mcp                      Run as MCP server (over stdio, for Claude Code)');
     return;
   }
 
-  const server = new McpServer({ name: 'keyq-tempo', version: '1.9.0' });
+  const server = new McpServer({ name: 'keyq-tempo', version: VERSION });
 
   // --- Sprint card tools (the core 8) ---
 
@@ -561,10 +571,10 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[keyq-tempo-mcp] Connected (sprint-mode v1.8.0)');
+  console.error(`[${PKG}] Connected (sprint-mode v${VERSION})`);
 }
 
 main().catch((err) => {
-  console.error('[keyq-tempo-mcp] Fatal:', err);
+  console.error(`[${PKG}] Fatal:`, err);
   process.exit(1);
 });
