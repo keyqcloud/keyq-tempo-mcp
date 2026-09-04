@@ -27,6 +27,7 @@ interface ReportReply {
 
 interface BootstrapReply {
   files: { name: string; content: string; executable: boolean }[];
+  defaults?: { operator_id: number | null; fleet_member_ids: number[]; wip_cap: number };
 }
 
 /**
@@ -72,6 +73,20 @@ async function fetchOpsScripts(apiUrl: string, token: string): Promise<{ ok: boo
       // executable, since the agent must not be able to run or rewrite its instructions.
       try { chmodSync(tmp, f.executable ? 0o755 : 0o644); } catch { /* windows: best effort */ }
       renameSync(tmp, dest);
+    }
+
+    // defaults.json, which the repo only ships an EXAMPLE of. Without it
+    // fleet-add-project.sh refuses with "device base setup missing", so a box could
+    // receive every script and still be unable to onboard a project - a half-provisioned
+    // state that looks fully provisioned.
+    //
+    // Never overwritten. Like manifest.json this is box-local: someone may have tuned
+    // wip_cap or the escalation list, and clobbering that on a re-enrol would silently
+    // change how the box behaves. Re-enrolling is a re-key, not a re-provision.
+    const defaultsPath = join(CFG, 'defaults.json');
+    if (reply.defaults && !existsSync(defaultsPath)) {
+      writeFileSync(defaultsPath, JSON.stringify(reply.defaults, null, 2) + '\n');
+      try { chmodSync(defaultsPath, 0o600); } catch { /* windows: best effort */ }
     }
   } catch (e) {
     return { ok: false, count: 0, error: e instanceof Error ? e.message : 'could not write' };
@@ -196,11 +211,26 @@ export async function runEnrollFleet(code: string): Promise<void> {
     say(`\u2713 ${scripts.count} script(s) written to ${CFG}.`);
     say('');
     say('Still to do on this box:');
-    say(`  1. node ${join(CFG, 'fleet-provision.js')}     # clone the granted repos`);
-    say('  2. schedule run-fleet.sh (cron, launchd, or Task Scheduler)');
+    say('  1. Install Claude Code and log in.  The runner shells out to `claude`, and');
+    say('     signing in is interactive, so this one genuinely cannot be automated.');
+    say('  2. Onboard each granted board:');
+    say(`       bash ${join(CFG, 'fleet-add-project.sh')} \\`);
+    say('         --name <board> --repo <git-url> --org <org> --project-id <id> \\');
+    say('         --verify "<build or test command>"');
+    say('     This clones the repo and writes its sprint config. No PAT needed - it asks');
+    say('     Tempo for a short-lived credential, the same way the runner does.');
+    say('  3. Schedule run-fleet.sh (cron, launchd, or Task Scheduler).');
     say('');
-    say('No GitHub credential is needed on this box for the ops scripts, and none is stored');
-    say('for them: work repos are authenticated per run with a short-lived token from Tempo.');
+    say('Nothing above needs a GitHub credential stored on this box. Work repos are');
+    say('authenticated per run with a short-lived token from Tempo.');
+    say('');
+    // fleet-provision.js used to be listed here as "clone the granted repos", which it has
+    // never done - it renders sprint config for workspaces that already exist, and defaults
+    // to a dry run. Pointing a new operator at it as step one sent them to a command that
+    // would report nothing to do and leave them stuck.
+    say(`Later, when board grants change: node ${join(CFG, 'fleet-provision.js')} to preview`);
+    say('the new config, then the same with --apply. It renders config only; it does not');
+    say('clone.');
     return;
   }
 
