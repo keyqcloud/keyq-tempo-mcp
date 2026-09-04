@@ -122,7 +122,33 @@ export async function runEnrollFleet(code: string): Promise<void> {
   }
 
   const { agent, projects } = reply;
-  mkdirSync(join(CFG, 'tokens'), { recursive: true });
+
+  // Everything past this point writes to CFG, so prove it is writable HERE rather than
+  // discovering it three statements later as an unhandled EACCES and a Node stack trace.
+  //
+  // Found on the first real box: the Slipstream agent installer had created ~/.config as
+  // root:root, so the login user could not make a directory inside it. Enrolment had
+  // already succeeded and the token was already on disk, and what the operator saw was a
+  // crash - which reads as "enrolment failed", the one thing that had not happened.
+  try {
+    mkdirSync(join(CFG, 'tokens'), { recursive: true });
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    say('');
+    say(`\u2717 Enrolled, but this box cannot write ${CFG}`);
+    say(`  ${why}`);
+    say('');
+    say('The token IS saved and enrolment stands - do not ask for a new code. This is a');
+    say('permissions problem on the box, not a Tempo one.');
+    say('');
+    say('Most likely: ~/.config is owned by root because some installer created it that');
+    say('way. Check with `ls -lad ~/.config`, and if so:');
+    say(`  sudo chown $(id -un):$(id -gn) ${join(CFG, '..')}`);
+    say('');
+    say('Then re-run this command with the same code if it has not expired, or a new one.');
+    process.exitCode = 1;
+    return;
+  }
 
   const manifestPath = join(CFG, 'manifest.json');
   // Never overwrite an existing manifest. Workspace paths are box-local and hand-chosen, and
@@ -139,7 +165,14 @@ export async function runEnrollFleet(code: string): Promise<void> {
         org: 'keyqcloud',
       })),
     };
-    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    try {
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    } catch (e) {
+      say(`\u2717 Enrolled, but the manifest could not be written: ${e instanceof Error ? e.message : e}`);
+      say('The token IS saved and enrolment stands - do not ask for a new code.');
+      process.exitCode = 1;
+      return;
+    }
     try { chmodSync(manifestPath, 0o600); } catch { /* best effort on Windows */ }
     say(`✓ Manifest written for lane ${agent.label} with ${manifest.projects.length} board(s).`);
   }

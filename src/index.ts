@@ -8,7 +8,7 @@
 // that disagreed (package 1.11.0 / server handshake 1.9.0 / connect log 1.8.0) — harmless
 // until you are debugging a box and believe the version it prints.
 const PKG = '@keyqinc/tempo-mcp';
-const VERSION = '1.13.0';
+const VERSION = '1.13.1';
 //
 // Slimmed down from the bridge-mvp predecessor (preserved on the
 // `bridge-mvp` branch). No more session tracking, heartbeats, hooks,
