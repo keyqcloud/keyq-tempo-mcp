@@ -290,10 +290,42 @@ export async function runEnrollFleet(code: string): Promise<void> {
       say(gh.gh ? '' : '  (install gh first: apt-get install gh, dnf install gh, or brew install gh)');
     }
 
+    // Run the doctor and show what is still missing, rather than printing a fixed list and
+    // hoping it is accurate. The hardcoded version of this text was wrong for months - it
+    // told operators to place a GitHub PAT that the design had already removed.
+    //
+    // --quick deliberately: Claude Code is usually not installed yet at this point, so the
+    // live tool check would fail on something the operator is about to do anyway. The full
+    // run is worth it once, afterwards, and the text below says so.
+    say('');
+    say('Checking this box...');
+    try {
+      const out = execFileSync('node', [join(CFG, 'fleet-doctor.js'), '--quick'],
+        { encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] });
+      say(out.trimEnd());
+    } catch (e) {
+      // Exit 1 just means something failed a check - that is the doctor working, not the
+      // doctor breaking. Its output is on stdout either way.
+      const err = e as { stdout?: string; message?: string };
+      const out = (err.stdout || '').trimEnd();
+      if (out) {
+        say(out);
+      } else {
+        // No stdout means the doctor never started - it is missing, or node could not run
+        // it. Say that in one line rather than pasting a module-resolution stack trace into
+        // an operator's enrolment output, which is the same unreadable-failure problem this
+        // whole exercise exists to remove.
+        say(`  (could not run fleet-doctor.js — re-run 'bash ${join(CFG, 'fleet-sync.sh')}' and try again)`);
+      }
+    }
+
     say('');
     say('Still to do on this box:');
     say('  1. Install Claude Code and log in.  The runner shells out to `claude`, and');
     say('     signing in is interactive, so this one genuinely cannot be automated.');
+    say(`     Then re-run the full check:  node ${join(CFG, 'fleet-doctor.js')}`);
+    say('     (that one asks Claude directly whether it is signed in and has its Tempo');
+    say('     tools - the two things no cheap test can tell you apart from working.)');
     say('  2. Onboard each granted board:');
     say(`       bash ${join(CFG, 'fleet-add-project.sh')} \\`);
     say('         --name <board> --repo <git-url> --org <org> --project-id <id> \\');
