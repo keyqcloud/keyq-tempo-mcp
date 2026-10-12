@@ -8,7 +8,7 @@
 // that disagreed (package 1.11.0 / server handshake 1.9.0 / connect log 1.8.0) — harmless
 // until you are debugging a box and believe the version it prints.
 const PKG = '@keyqinc/tempo-mcp';
-const VERSION = '1.15.1';
+const VERSION = '1.16.0';
 //
 // Slimmed down from the bridge-mvp predecessor (preserved on the
 // `bridge-mvp` branch). No more session tracking, heartbeats, hooks,
@@ -30,6 +30,7 @@ import * as msgraph from './tools/msgraph.js';
 import * as worklists from './tools/worklists.js';
 import * as entities from './tools/entities.js';
 import * as designs from './tools/designs.js';
+import * as proposals from './tools/proposals.js';
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -565,6 +566,58 @@ async function main() {
       expires_at: z.string().optional().describe('ISO datetime; omit for no expiry.'),
     },
     async (args) => ({ content: [{ type: 'text', text: await designs.createDesignShare(args) }] }),
+  );
+
+  // --- Proposals (epic #1010): CC authors drafts, a person publishes ---
+
+  server.tool(
+    'tempo_proposal_authoring_guide',
+    'READ THIS BEFORE WRITING OR REVISING A TEMPO PROPOSAL. Returns the authoring contract: the folder layout (index.html + tempo-proposal.json + assets), the content rules (relative paths, allowed CDNs, no forms/outbound fetch, never draw your own question/comment UI), the manifest format for questions and assumptions, permanent item keys, and data-tempo-anchor / window.TempoBridge anchors for sections and interactive demo screens.',
+    {},
+    async () => ({ content: [{ type: 'text', text: proposals.authoringGuide() }] }),
+  );
+
+  server.tool(
+    'tempo_list_proposals',
+    'List client proposals with what each is attached to (customer, lead or prospect), its published and draft version, and whether guest access is on. Defaults to active proposals.',
+    {
+      customer_id: z.number().optional(),
+      lead_id: z.number().optional(),
+      status: z.enum(['active', 'archived', 'all']).optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await proposals.listProposals(args) }] }),
+  );
+
+  server.tool(
+    'tempo_create_proposal',
+    'Create a client proposal. Attach it to an existing customer (customer_id), a lead (lead_id), or just a prospect_name; project_id is optional (its customer is used when customer_id is omitted). Starts with an empty draft v1 to fill with tempo_upload_proposal_version.',
+    {
+      title: z.string(),
+      customer_id: z.number().optional().describe('Resolve with tempo_list_customers.'),
+      lead_id: z.number().optional().describe('Resolve with tempo_list_leads.'),
+      prospect_name: z.string().optional().describe('For a prospect that is neither a customer nor a lead yet.'),
+      project_id: z.number().optional(),
+      language: z.enum(['en', 'ja']).optional().describe('Language of the emails guests get. Default en.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await proposals.createProposal(args) }] }),
+  );
+
+  server.tool(
+    'tempo_upload_proposal_version',
+    'Upload a proposal from a local folder (index.html at the top, optional tempo-proposal.json and assets) or a single .html file. Sets the questions/assumptions from tempo-proposal.json, uploads every file, runs the server checks, and returns errors/warnings to fix. If the latest version is still a draft it is replaced in place (so re-upload after fixing warnings); otherwise a new draft version is created. NEVER publishes: a person publishes from the Tempo web admin. Call tempo_proposal_authoring_guide first.',
+    {
+      proposal_id: z.number(),
+      path: z.string().describe('Absolute path to the proposal folder, or to a single .html file.'),
+      changelog: z.string().optional().describe('What changed in this version; used when a new draft is created.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await proposals.uploadProposalVersion(args) }] }),
+  );
+
+  server.tool(
+    'tempo_get_proposal_feedback',
+    'Read what the client SUBMITTED on a proposal: every item of the published version with each reviewer\'s answer, confirmation or correction (flagged when the question changed since they answered), the comment threads with their anchor/screen and team replies (internal notes marked), and the submission history. Unsubmitted drafts are never returned. Use it to write the next version.',
+    { proposal_id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await proposals.getProposalFeedback(args) }] }),
   );
 
   // --- Connect transport ---

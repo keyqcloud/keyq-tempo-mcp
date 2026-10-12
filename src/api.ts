@@ -17,9 +17,10 @@ function authHeader(): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function call<T>(method: string, path: string, body?: unknown, opts?: { auth?: boolean; raw?: boolean; timeoutMs?: number }): Promise<T> {
+async function call<T>(method: string, path: string, body?: unknown, opts?: { auth?: boolean; raw?: boolean; timeoutMs?: number; bytes?: boolean }): Promise<T> {
   const url = `${getApiUrl()}${path}`;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  // `bytes`: the body is a file's raw contents, sent as-is (proposal uploads).
+  const headers: Record<string, string> = { 'Content-Type': opts?.bytes ? 'application/octet-stream' : 'application/json' };
   if (opts?.auth !== false) Object.assign(headers, authHeader());
 
   const controller = opts?.timeoutMs ? new AbortController() : undefined;
@@ -30,7 +31,7 @@ async function call<T>(method: string, path: string, body?: unknown, opts?: { au
     const res = await fetch(url, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : opts?.bytes ? body as unknown as BodyInit : JSON.stringify(body),
       signal: controller?.signal,
     });
     if (!res.ok) {
@@ -50,5 +51,6 @@ export const api = {
   put: <T>(path: string, body?: unknown) => call<T>('PUT', path, body),
   patch: <T>(path: string, body?: unknown) => call<T>('PATCH', path, body),
   delete: <T>(path: string) => call<T>('DELETE', path),
+  putBytes: <T>(path: string, data: Uint8Array) => call<T>('PUT', path, data, { bytes: true, timeoutMs: 120_000 }),
   fetchRaw: (path: string) => call<Response>('GET', path, undefined, { raw: true }),
 };

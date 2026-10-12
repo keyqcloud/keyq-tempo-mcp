@@ -93,6 +93,14 @@ The sprint-mode skill (`~/.claude/skills/sprint-mode/`) reads this config to kno
 - `tempo_get_meeting(id)` — single meeting detail
 - `tempo_read_attachment(id)` — text attachment contents inline
 
+### Proposals (5 tools)
+
+- `tempo_proposal_authoring_guide()` — how to write a proposal folder (read first)
+- `tempo_list_proposals(customer_id?, lead_id?)` — proposals and their versions
+- `tempo_create_proposal(title, customer_id? | lead_id? | prospect_name?, project_id?)` — new proposal with an empty draft
+- `tempo_upload_proposal_version(proposal_id, path)` — upload a folder or .html as a draft and return the checks (never publishes)
+- `tempo_get_proposal_feedback(proposal_id)` — the client's submitted answers and comments
+
 ## Authentication
 
 Device token (`tcc_*` prefix) loaded from `~/.keyq-tempo/token`. Sent as `Authorization: Bearer <token>` on every API call. Tokens are SHA-256 hashed in Tempo's database; the raw token only ever lives on disk + in-memory in this process.
