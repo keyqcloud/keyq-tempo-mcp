@@ -8,7 +8,7 @@
 // that disagreed (package 1.11.0 / server handshake 1.9.0 / connect log 1.8.0) — harmless
 // until you are debugging a box and believe the version it prints.
 const PKG = '@keyqinc/tempo-mcp';
-const VERSION = '1.16.0';
+const VERSION = '1.17.0';
 //
 // Slimmed down from the bridge-mvp predecessor (preserved on the
 // `bridge-mvp` branch). No more session tracking, heartbeats, hooks,
@@ -31,6 +31,7 @@ import * as worklists from './tools/worklists.js';
 import * as entities from './tools/entities.js';
 import * as designs from './tools/designs.js';
 import * as proposals from './tools/proposals.js';
+import * as software from './tools/software.js';
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -618,6 +619,54 @@ async function main() {
     'Read what the client SUBMITTED on a proposal: every item of the published version with each reviewer\'s answer, confirmation or correction (flagged when the question changed since they answered), the comment threads with their anchor/screen and team replies (internal notes marked), and the submission history. Unsubmitted drafts are never returned. Use it to write the next version.',
     { proposal_id: z.number() },
     async (args) => ({ content: [{ type: 'text', text: await proposals.getProposalFeedback(args) }] }),
+  );
+
+  // --- Software releases (epic #1044): CC makes drafts, a person publishes ---
+
+  server.tool(
+    'tempo_list_software',
+    'List the private software products Tempo delivers to customers (desktop installers behind the client portal login), with each product\'s latest published version and how many drafts are waiting. Filter by customer_id.',
+    {
+      customer_id: z.number().optional().describe('Resolve with tempo_list_customers.'),
+      include_archived: z.boolean().optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await software.listSoftware(args) }] }),
+  );
+
+  server.tool(
+    'tempo_list_versions',
+    'Read one software product: every version with its status (draft / published / LATEST / archived), release notes, installer files (platform, size, SHA-256, file ids), download counts and problem-report counts, plus whether CI auto-publish and the release email are on.',
+    { product_id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await software.listVersions(args) }] }),
+  );
+
+  server.tool(
+    'tempo_create_version',
+    'Create a DRAFT version of a software product, with optional release notes in Markdown (customers see them on their Software page and in the release email). Customers see nothing until a person publishes it in Tempo; this tool cannot publish, and neither can any other.',
+    {
+      product_id: z.number(),
+      version: z.string().describe('e.g. "2.4.0". Must not already exist on the product.'),
+      notes: z.string().optional().describe('Release notes, Markdown.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await software.createVersion(args) }] }),
+  );
+
+  server.tool(
+    'tempo_upload_version_file',
+    'Upload one installer from local disk to a DRAFT software version. Large files are fine (it uploads in parts). The platform is guessed from the extension (.exe/.msi Windows, .dmg/.pkg macOS, .deb/.rpm/.AppImage Linux) unless given. Upload only the signed installers customers should run, one call per file. Returns the SHA-256 Tempo computed.',
+    {
+      version_id: z.number(),
+      path: z.string().describe('Absolute path to the installer file.'),
+      platform: z.enum(software.PLATFORMS).optional(),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await software.uploadVersionFile(args) }] }),
+  );
+
+  server.tool(
+    'tempo_get_version_reports',
+    'Read the problems customers reported on a software version ("Report a problem" in their portal). Each is a Support ticket: the title, status, reporter, their description, the comment thread, and attachment ids (screenshots, logs) to read with tempo_read_attachment. Use it to reproduce and fix bugs in the next version.',
+    { version_id: z.number() },
+    async (args) => ({ content: [{ type: 'text', text: await software.getVersionReports(args) }] }),
   );
 
   // --- Connect transport ---
