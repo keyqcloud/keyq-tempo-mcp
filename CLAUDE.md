@@ -2,7 +2,7 @@
 
 Guidance for Claude Code and developers working in this repo. This is the **MCP (Model Context Protocol) server** that exposes KeyQ Tempo sprint cards, meetings, and team data to Claude Code — the bridge that lets an agent run the sprint workflow (pick a card → work it → comment → move it → email when stuck).
 
-GitHub: `keyqcloud/keyq-tempo-mcp` (**public**) · npm: `@keyqinc/tempo-mcp` · default branch: `main` · current version **1.16.0**
+GitHub: `keyqcloud/keyq-tempo-mcp` (**public**) · npm: `@keyqinc/tempo-mcp` · default branch: `main` · current version **1.17.0**
 
 This is **sprint-mode v1**: a minimal, stateless tool surface over the Tempo API. The earlier bidirectional bridge MVP (session tracking, hooks, listening loops) lives on the `bridge-mvp` branch for archaeology and is **not** what this is.
 
@@ -61,16 +61,17 @@ src/tools/worklists.ts# tickets, tasks, leads
 src/tools/msgraph.ts  # the operator's own Outlook mail + calendar via the API Graph routes
 src/tools/designs.ts  # client-facing design mockups + share links
 src/tools/proposals.ts# client proposals: create, upload a folder as a DRAFT, read submitted feedback
+src/tools/software.ts # software releases: products, DRAFT versions, chunked installer upload, problem reports
 src/guides/*.md       # long-form guides served by tools; bundled into dist/ as text (tsup loader)
 templates/pre-push    # git hook script
 .github/workflows/publish.yml  # npm publish on version change (Trusted Publishing, no token)
 ```
 Architecture is flat and functional: each tool is `server.tool(name, desc, zodSchema, handler)`, handlers call `api.get/post/put/delete`, return `{ content: [{ type: 'text', text }] }` (pretty JSON, or markdown for meetings).
 
-## Tools (52)
+## Tools (57)
 
 Counted from the `server.tool(...)` registrations in `src/index.ts` — this said **12** for a
-long time while the real surface grew to 52, so regenerate it rather than editing by hand:
+long time while the real surface grew to 57, so regenerate it rather than editing by hand:
 `grep -A1 "server.tool(" src/index.ts | grep -oE "tempo_[a-z_]+" | sort -u`
 
 **Sprint workflow** — `tempo_next_card` (next CC-assigned card by priority), `tempo_get_card`,
@@ -98,6 +99,13 @@ copy is `src/guides/proposal-authoring.md`), `tempo_list_proposals`, `tempo_crea
 `tempo_upload_proposal_version` (folder or one .html → reuses the latest draft or makes a new one,
 items from `tempo-proposal.json` first, then files, then the server's checks; **never publishes** —
 the API refuses publish for device tokens), `tempo_get_proposal_feedback` (submitted only).
+
+**Software releases** (epic #1044) — `tempo_list_software`, `tempo_list_versions`,
+`tempo_create_version` (always a **draft**), `tempo_upload_version_file` (one installer from disk,
+chunked into the API's part size; a failed part deletes the half-made file), and
+`tempo_get_version_reports` (the "Report a problem" Support tickets on a version, with description,
+comments and attachment ids). **Publish, archive, restore and delete are deliberately absent** — the
+API refuses them for device tokens anyway. `src/tools/software.ts`.
 
 **Microsoft 365** (the operator's own mailbox/calendar, via the API's delegated Graph routes;
 requires the operator to have connected their Microsoft account) — `tempo_list_calendar_events`,

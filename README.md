@@ -101,6 +101,16 @@ The sprint-mode skill (`~/.claude/skills/sprint-mode/`) reads this config to kno
 - `tempo_upload_proposal_version(proposal_id, path)` — upload a folder or .html as a draft and return the checks (never publishes)
 - `tempo_get_proposal_feedback(proposal_id)` — the client's submitted answers and comments
 
+### Software releases (5 tools)
+
+Private desktop installers delivered through a customer's Tempo portal. Claude Code makes **drafts**; a person publishes.
+
+- `tempo_list_software(customer_id?)` — products, their latest version and drafts waiting
+- `tempo_list_versions(product_id)` — versions, release notes, installer files, download and problem-report counts
+- `tempo_create_version(product_id, version, notes?)` — a new DRAFT version (never published by this server)
+- `tempo_upload_version_file(version_id, path, platform?)` — upload one installer from disk, in parts; returns Tempo's SHA-256
+- `tempo_get_version_reports(version_id)` — problems customers reported on a version, with details, comments and attachment ids
+
 ## Authentication
 
 Device token (`tcc_*` prefix) loaded from `~/.keyq-tempo/token`. Sent as `Authorization: Bearer <token>` on every API call. Tokens are SHA-256 hashed in Tempo's database; the raw token only ever lives on disk + in-memory in this process.
