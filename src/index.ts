@@ -8,7 +8,7 @@
 // that disagreed (package 1.11.0 / server handshake 1.9.0 / connect log 1.8.0) — harmless
 // until you are debugging a box and believe the version it prints.
 const PKG = '@keyqinc/tempo-mcp';
-const VERSION = '1.17.0';
+const VERSION = '1.18.0';
 //
 // Slimmed down from the bridge-mvp predecessor (preserved on the
 // `bridge-mvp` branch). No more session tracking, heartbeats, hooks,
@@ -210,6 +210,17 @@ async function main() {
     'Get a recorded meeting in detail — title, summary, attendees, action items. Use during scrum to recover context for a vague card.',
     { id: z.number() },
     async (args) => ({ content: [{ type: 'text', text: await helpers.getMeeting(args) }] }),
+  );
+
+  server.tool(
+    'tempo_get_meeting_transcript',
+    'Read what was actually said in a recorded meeting: exact wording and who said what. Use when the summary from tempo_get_meeting is not enough. Long transcripts come back in pages; follow the offset it gives you. Every read is audited. Refused for customers whose AI posture is "ask" or "excluded" and for record-only meetings; report that to the operator and do not try to get the text another way.',
+    {
+      id: z.number(),
+      offset: z.number().optional().describe('Character to start from. Omit for the beginning.'),
+      max_chars: z.number().optional().describe('Page size. Default 20000, maximum 60000.'),
+    },
+    async (args) => ({ content: [{ type: 'text', text: await helpers.getMeetingTranscript(args) }] }),
   );
 
   server.tool(

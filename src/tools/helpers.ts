@@ -3,12 +3,9 @@
 // reaches for: recorded meetings (action-item context for cards) + attachment
 // reading (PDFs / docs attached to cards).
 
-import { api } from '../api.js';
+import { api, ApiError } from '../api.js';
 
-// The in-house recorder's shape (GET /meetings). NOT the legacy Fathom one:
-// Fathom was retired in 2026-08 and its archive is frozen, so reading it meant
-// answering "what came up in recent meetings" from a table that stopped growing
-// at the July cutover — truthfully worded and months out of date.
+// The in-house recorder's shape (GET /meetings).
 interface Meeting {
   id: number; source: string; title: string | null; summary: string | null;
   meeting_date: string; scheduled_start: string | null; duration: number | null;
@@ -17,9 +14,15 @@ interface Meeting {
   has_transcript?: number; purged_at?: string | null;
 }
 
+// The detail endpoint leaves the transcript out for a device token: it is read through
+// getMeetingTranscript, which applies the AI posture rule and audits the read.
 interface MeetingDetail extends Meeting {
-  transcript_text: string | null;
   participants: string | null;
+}
+
+interface MeetingTranscript {
+  meeting_id: number; title: string | null; offset: number;
+  total_chars: number; next_offset: number | null; transcript: string;
 }
 
 interface TeamMember { id: number; initials: string; name: string }
@@ -113,18 +116,12 @@ export async function listMeetings(opts: { customer_id?: number; limit?: number 
 }
 
 export async function getMeeting(opts: { id: number }): Promise<string> {
-  // Reads the recorder's detail endpoint directly. Deliberately does NOT fall
-  // back to the legacy Fathom archive on a miss: `meetings` and `fathom_meetings`
-  // are separate tables with independent id sequences, so meeting #5 can exist in
-  // both. A silent fallback would sometimes return a different meeting than the
-  // one asked for, which is worse than saying it is not here.
   let m: MeetingDetail;
   try {
     m = await api.get<MeetingDetail>(`/meetings/${opts.id}`);
-  } catch {
-    return `Meeting #${opts.id} not found in the recorder. `
-      + `Note: meetings from before the 2026-08 Fathom retirement live in a separate frozen archive `
-      + `with its own id numbering, and are not readable through this tool.`;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return `Meeting #${opts.id} not found.`;
+    throw e;
   }
   if (m.purged_at) {
     return `Meeting #${m.id} was purged on ${m.purged_at.slice(0, 10)}. `
@@ -158,6 +155,32 @@ export async function getMeeting(opts: { id: number }): Promise<string> {
     for (const a of actions) lines.push(`- ${a.description}${a.assignee ? ` (${a.assignee})` : ''}`);
   }
   if (!m.summary && m.has_transcript) lines.push('', '_Transcript exists but no summary was generated._');
+  if (m.has_transcript) lines.push('', `_A transcript exists. Read it with tempo_get_meeting_transcript (id ${m.id}) if the summary is not enough._`);
+  return lines.join('\n');
+}
+
+export async function getMeetingTranscript(opts: { id: number; offset?: number; max_chars?: number }): Promise<string> {
+  const q = new URLSearchParams();
+  if (opts.offset) q.set('offset', String(opts.offset));
+  if (opts.max_chars) q.set('max_chars', String(opts.max_chars));
+  const query = q.size ? `?${q}` : '';
+  let t: MeetingTranscript;
+  try {
+    t = await api.get<MeetingTranscript>(`/meetings/${opts.id}/transcript${query}`);
+  } catch (e) {
+    // These are answers, not failures: the reason is the useful part, and it must not read
+    // as something to retry or work around.
+    if (e instanceof ApiError && [403, 404, 410].includes(e.status)) return `Meeting #${opts.id}: ${e.message}`;
+    throw e;
+  }
+  const shown = t.offset + t.transcript.length;
+  const lines = [
+    `# Transcript of meeting #${t.meeting_id}: ${t.title?.trim() || '(untitled)'}`,
+    `Characters ${t.offset}-${shown} of ${t.total_chars}`,
+    '',
+    t.transcript,
+  ];
+  if (t.next_offset != null) lines.push('', `_More follows. Call again with offset ${t.next_offset}._`);
   return lines.join('\n');
 }
 

@@ -87,10 +87,11 @@ The sprint-mode skill (`~/.claude/skills/sprint-mode/`) reads this config to kno
 - `tempo_get_project_doc(project_id)` — read a board's live scope/context doc (read before planning work on a board)
 - `tempo_update_project_doc(project_id, content, base_version)` — create/update the scope doc (optimistic concurrency; 0 to create)
 
-### Read helpers (3 tools)
+### Read helpers (4 tools)
 
 - `tempo_list_meetings(...)` — Tempo notetaker meeting summaries for scrum context
 - `tempo_get_meeting(id)` — single meeting detail
+- `tempo_get_meeting_transcript(id, offset?, max_chars?)` — what was said, in pages. Audited, and refused for customers whose AI posture is `ask` or `excluded` and for record-only meetings
 - `tempo_read_attachment(id)` — text attachment contents inline
 
 ### Proposals (5 tools)
