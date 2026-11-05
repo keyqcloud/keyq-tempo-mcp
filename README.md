@@ -15,7 +15,7 @@ Each Claude Code instance running this MCP server can:
 - **Create / update / comment on / move cards** — the workflow Claude needs to drive a sprint forward.
 - **Email the operator** when stuck. The blocker is posted as a comment on the card AND emailed to the user. Operator's reply lands back on the card via the AI router's `[Card #N]` subject shortcut.
 
-For scrum context: read recent **Fathom meetings** and **attachments** on cards to recover decisions/requirements.
+For scrum context: read recent **meetings** (Tempo notetaker) and **attachments** on cards to recover decisions/requirements.
 
 ## Setup
 
@@ -89,7 +89,7 @@ The sprint-mode skill (`~/.claude/skills/sprint-mode/`) reads this config to kno
 
 ### Read helpers (3 tools)
 
-- `tempo_list_meetings(...)` — Fathom meeting summaries for scrum context
+- `tempo_list_meetings(...)` — Tempo notetaker meeting summaries for scrum context
 - `tempo_get_meeting(id)` — single meeting detail
 - `tempo_read_attachment(id)` — text attachment contents inline
 
