@@ -18,10 +18,18 @@ export function setApiUrl(url: string): void {
   writeFileSync(URL_PATH, url, { encoding: 'utf8', mode: 0o600 });
 }
 
+// KEYQ_TEMPO_TOKEN_FILE points one MCP server at a different credential - e.g. an AI team
+// member's ("Alex") token next to the operator's own, in the same Claude Code session
+// (#1208). A file, not the token itself, so the secret never sits in .mcp.json.
+function tokenPath(): string {
+  return process.env.KEYQ_TEMPO_TOKEN_FILE || TOKEN_PATH;
+}
+
 export function readToken(): string | null {
   try {
-    if (!existsSync(TOKEN_PATH)) return null;
-    return readFileSync(TOKEN_PATH, 'utf8').trim() || null;
+    const path = tokenPath();
+    if (!existsSync(path)) return null;
+    return readFileSync(path, 'utf8').trim() || null;
   } catch {
     return null;
   }
